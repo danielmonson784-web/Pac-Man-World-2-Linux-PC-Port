@@ -56,25 +56,36 @@ open an issue asking for a link.
 
 ## Build
 
+Everything starts with `setup.sh`, which **requires your own disc image** and
+refuses to run without one:
+
 ```sh
-# 1. Install the guard first, so game data can never be committed by accident
+# Install the commit guard first, so game data can never be committed by accident
 ln -s ../../tools/check-no-game-content.sh .git/hooks/pre-commit
 
-# 2. Extract your own disc
-python3 tools/gcdisc.py extract /path/to/your.iso disc/PacManWorld2
+# Verify and extract your disc, and generate the symbol map
+./setup.sh --iso "/path/to/Pac-Man World 2 (USA).iso"
+```
 
-# 3. Generate a symbol map (improves recompilation coverage)
-python3 tools/dolmap.py map disc/PacManWorld2/sys/main.dol > disc/PacManWorld2/sys/main.map
+`setup.sh` checks three things before it will touch anything:
 
-# 4. Apply the patches to your ModernGekko checkout, then build it
+1. the GameCube disc magic at `0x1C` (`0xC2339F3D`),
+2. the game ID at `0x00` — it names the PAL and JP releases specifically if you
+   feed it the wrong region,
+3. the SHA-1 of the extracted `main.dol`, which is byte identical across
+   ISO / GCM / NKit / RVZ dumps of the same disc. Any dump format works; a
+   corrupt or modified one is rejected.
+
+Then:
+
+```sh
+# Apply the patches to your ModernGekko checkout and build it
 cd /path/to/ModernGekko/vendor/dolphin
 for p in /path/to/pmw2-port/patches/*.patch; do git apply "$p"; done
 
-# 5. Input config
-python3 tools/mkinput.py --out <bundle>/userdata/Config/
-
-# 6. Shaders
+# Point the recompiler at disc/PacManWorld2/sys/main.dol, then finish the bundle
 cp shaders/*.glsl <bundle>/Sys/Shaders/
+python3 tools/mkinput.py --out <bundle>/userdata/Config/
 ```
 
 ---
