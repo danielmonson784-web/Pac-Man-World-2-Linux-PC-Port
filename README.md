@@ -17,6 +17,8 @@ Tooling and patches for building a **native Linux port of Pac-Man World 2**
 | `tools/mkinput.py` | Generates `GCPadNew.ini` for keyboard + gamepad, with correct platform key naming. |
 | `tools/disasm/ppcdis.cpp` | Standalone Gekko disassembler over a raw DOL (wraps Dolphin's `GekkoDisassembler`). |
 | `tools/check-no-game-content.sh` | Pre-commit hook that blocks game data from being committed. **Install this first.** |
+| `play.sh` | Bundle launcher. Auto-detects a disc image dropped in `Game/`, verifies and extracts it on first run, then launches. |
+| `setup.sh` | Source-build setup. Requires `--iso`; verifies and extracts the disc and generates the symbol map. |
 | `patches/` | Patches against ModernGekko/Dolphin — see below. |
 | `shaders/` | Four original CRT post-process shaders. |
 | `docs/` | Modding guide, and notes from the framerate investigation. |
@@ -56,8 +58,28 @@ open an issue asking for a link.
 
 ## Build
 
-Everything starts with `setup.sh`, which **requires your own disc image** and
-refuses to run without one:
+### Using a finished bundle
+
+Once the runtime is built, running the game is just:
+
+1. Drop your own disc image into the bundle's `Game/` folder — any filename,
+   any GameCube dump format (`.iso`, `.gcm`, `.rvz`, `.gcz`, NKit).
+2. Run `./play.sh`.
+
+The first launch verifies the disc, extracts it and generates the symbol map;
+every launch after that goes straight to the game. With no disc image present
+it explains what to do rather than failing obscurely.
+
+```
+Game/
+  Pac-Man World 2 (USA).iso      <- you provide this
+  sys/    files/                 <- created on first launch
+```
+
+### Building the runtime
+
+`setup.sh` does the same verification for a source build, and **requires your
+own disc image**:
 
 ```sh
 # Install the commit guard first, so game data can never be committed by accident
@@ -67,7 +89,7 @@ ln -s ../../tools/check-no-game-content.sh .git/hooks/pre-commit
 ./setup.sh --iso "/path/to/Pac-Man World 2 (USA).iso"
 ```
 
-`setup.sh` checks three things before it will touch anything:
+Both `setup.sh` and `play.sh` check three things before touching anything:
 
 1. the GameCube disc magic at `0x1C` (`0xC2339F3D`),
 2. the game ID at `0x00` — it names the PAL and JP releases specifically if you
