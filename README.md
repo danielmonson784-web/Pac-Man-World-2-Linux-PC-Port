@@ -2,7 +2,7 @@
 
 Tooling and patches for building a **native Linux port of Pac-Man World 2**
 (GameCube, `GP2E`) by static recompilation, using
-[DolRecomp](https://github.com/) + [ModernGekko](https://github.com/).
+[DolRecomp](https://github.com/ExpansionPak/DolRecomp) + [ModernGekko](https://github.com/ExpansionPak/ModernGekko).
 
 **This repository contains no game content.** You supply your own disc dump.
 
@@ -79,8 +79,12 @@ ln -s ../../tools/check-no-game-content.sh .git/hooks/pre-commit
 Then:
 
 ```sh
-# Apply the patches to your ModernGekko checkout and build it
-cd /path/to/ModernGekko/vendor/dolphin
+# Get the upstream projects
+git clone https://github.com/ExpansionPak/ModernGekko.git
+git clone https://github.com/ExpansionPak/DolRecomp.git
+
+# Apply the patches to the vendored Dolphin tree inside ModernGekko, then build
+cd ModernGekko/vendor/dolphin
 for p in /path/to/pmw2-port/patches/*.patch; do git apply "$p"; done
 
 # Point the recompiler at disc/PacManWorld2/sys/main.dol, then finish the bundle
