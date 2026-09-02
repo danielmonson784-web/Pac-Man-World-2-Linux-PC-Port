@@ -1,0 +1,98 @@
+Pac-Man World 2 (Linux port) - modding guide
+============================================
+
+Everything is switched on from the in-game menu: press Escape, open "Mods".
+No config files to hand-edit.
+
+There are four ways to change the game, from safest to most invasive. They are
+independent - use any combination.
+
+
+1. CUSTOM TEXTURES  (easiest, fully reversible)
+-----------------------------------------------
+Replace any texture with a PNG. Matching is by content hash, so you never have
+to work out which file a texture lives in.
+
+Using someone else's pack:
+  1. Unzip into  userdata/Load/Textures/GP2EAF/
+     Files must land directly there, not in a nested folder.
+       correct: userdata/Load/Textures/GP2EAF/tex1_64x64_abc123..._14.png
+       wrong:   userdata/Load/Textures/GP2EAF/CoolPack/tex1_...png
+  2. Escape -> Mods -> "Load custom textures".
+  3. Re-enter a level. Textures swap as they load, so whatever is already
+     on screen keeps the originals until it reloads.
+
+  Large pack stuttering? Also tick "Preload into RAM".
+
+Making your own:
+  1. Escape -> Mods -> "Dump textures while playing".
+  2. Play through what you want to change. Everything drawn is written to
+     userdata/Dump/Textures/GP2EAF/.
+  3. Turn dumping OFF again (it costs performance and disk).
+  4. Edit the PNGs. Keep the filename EXACTLY as dumped - the hash is how the
+     game finds your replacement. You may upscale (2x, 4x...) freely.
+  5. Copy them into userdata/Load/Textures/GP2EAF/ and enable loading.
+
+
+2. GRAPHICS MODS  (draw-call level)
+------------------------------------
+Dolphin's graphics-mod system: hide, tint, move or replace individual draw
+calls - useful for removing HUD elements, fog, or specific objects.
+
+  Packs go in     userdata/Load/GraphicMods/
+  Enable via      Escape -> Mods -> "Graphics mods"
+
+
+3. GECKO / AR CODES  (game behaviour)
+--------------------------------------
+Arbitrary code and memory patches - infinite lives, physics changes, anything
+someone has written a code for.
+
+  Codes live in   Sys/GameSettings/GP2EAF.ini
+  Enable via      Escape -> Mods -> "Gecko / AR codes"
+  Takes effect on restart, not immediately.
+
+Format inside that .ini:
+
+    [Gecko]
+    $My Code Name
+    04123456 60000000
+
+    [Gecko_Enabled]
+    $My Code Name
+
+A code only runs if its name is listed under [Gecko_Enabled].
+
+
+4. RAW GAME FILES  (change anything)
+-------------------------------------
+This port boots from an EXTRACTED disc rather than an ISO, so every asset is
+an ordinary file you can edit or replace in place:
+
+    Game/files/netdata/
+
+  1806 files, 854 MB, including:
+    777  .tpl   textures (GameCube TPL format)
+    265  .amf   models
+    191  .hxf   level/scene data
+    142  .dsp   audio (ADPCM - music and sound effects)
+     33  .txt   plain text, directly editable
+     50  .rar   archives
+
+No repacking step. Change a file, launch, it is used.
+
+  IMPORTANT: back up before editing. The pristine originals are also in
+  disc/PacManWorld2/files/ in the build tree - copy a file back from there to
+  undo a change. There is no in-game "restore".
+
+  Editing files here changes what the game loads, but it cannot change the
+  game's compiled code - that is what Gecko codes (section 3) are for.
+
+
+NOTES
+-----
+- None of this modifies the executable or the recompiled module.
+- To go fully stock: clear Load/Textures/GP2EAF/ and Load/GraphicMods/, untick
+  the Mods boxes, and restore any edited files from disc/PacManWorld2/.
+- Shaders are separate: Escape -> Post-process. Drop extra .glsl files into
+  Sys/Shaders/ to add your own; the menu lists a curated set.

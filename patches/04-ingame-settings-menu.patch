@@ -1,0 +1,733 @@
+diff --git a/Source/Core/DolphinNoGUI/PlatformX11.cpp b/Source/Core/DolphinNoGUI/PlatformX11.cpp
+index 8d0ae0c..b4b6798 100644
+--- a/Source/Core/DolphinNoGUI/PlatformX11.cpp
++++ b/Source/Core/DolphinNoGUI/PlatformX11.cpp
+@@ -17,6 +17,7 @@ static constexpr auto X_None = None;
+ #include "Core/State.h"
+ #include "Core/System.h"
+ 
++#include <chrono>
+ #include <cstring>
+ #include <thread>
+ 
+@@ -26,6 +27,8 @@ static constexpr auto X_None = None;
+ #include <X11/keysym.h>
+ #include "UICommon/UICommon.h"
+ #include "UICommon/X11Utils.h"
++#include "VideoCommon/OnScreenUI.h"
++#include "VideoCommon/OnScreenUIKeyMap.h"
+ #include "VideoCommon/Present.h"
+ 
+ #ifndef HOST_NAME_MAX
+@@ -49,9 +52,15 @@ private:
+   void CloseDisplay();
+   void UpdateWindowPosition();
+   void ProcessEvents();
++  void PollOverlayInput();
+ 
+   Display* m_display = nullptr;
+   Window m_window = {};
++  Display* m_poll_display = nullptr;
++  bool m_escape_was_down = false;
++  bool m_escape_prev_sample = false;
++  std::chrono::steady_clock::time_point m_last_toggle{};
++  bool m_keymap_set = false;
+   Cursor m_blank_cursor = X_None;
+ #ifdef HAVE_XRANDR
+   X11Utils::XRRConfiguration* m_xrr_config = nullptr;
+@@ -70,7 +79,7 @@ PlatformX11::~PlatformX11()
+ 
+   if (m_display)
+   {
+-    if (Config::Get(Config::MAIN_SHOW_CURSOR) == Config::ShowCursor::Never)
++    if (m_blank_cursor != X_None)
+       XFreeCursor(m_display, m_blank_cursor);
+ 
+     XCloseDisplay(m_display);
+@@ -115,16 +124,22 @@ bool PlatformX11::Init()
+   m_xrr_config = new X11Utils::XRRConfiguration(m_display, m_window);
+ #endif
+ 
+-  if (Config::Get(Config::MAIN_SHOW_CURSOR) == Config::ShowCursor::Never)
+   {
+-    // make a blank cursor
++    // Build the blank cursor unconditionally, not just when the cursor is
++    // configured away entirely. The in-game menu needs it to hide the OS
++    // pointer while ImGui draws its own, and the default CursorVisibility is
++    // OnMovement, so the old guard left m_blank_cursor as X_None. Passing
++    // X_None to XDefineCursor does NOT hide the cursor - it makes the window
++    // inherit its parent's - which is why two pointers showed up.
+     Pixmap Blank;
+     XColor DummyColor;
+     char ZeroData[1] = {0};
+     Blank = XCreateBitmapFromData(m_display, m_window, ZeroData, 1, 1);
+     m_blank_cursor = XCreatePixmapCursor(m_display, Blank, Blank, &DummyColor, &DummyColor, 0, 0);
+     XFreePixmap(m_display, Blank);
+-    XDefineCursor(m_display, m_window, m_blank_cursor);
++
++    if (Config::Get(Config::MAIN_SHOW_CURSOR) == Config::ShowCursor::Never)
++      XDefineCursor(m_display, m_window, m_blank_cursor);
+   }
+ 
+   // Enter fullscreen if enabled.
+@@ -181,8 +196,116 @@ void PlatformX11::UpdateWindowPosition()
+                &m_window_height, &borderDummy, &depthDummy);
+ }
+ 
++void PlatformX11::PollOverlayInput()
++{
++  if (!m_poll_display)
++  {
++    m_poll_display = XOpenDisplay(nullptr);
++    if (!m_poll_display)
++      return;
++    // Start the cooldown here rather than at the epoch, so a phantom keymap
++    // read during startup cannot pop the menu open before the game appears.
++    m_last_toggle = std::chrono::steady_clock::now();
++  }
++
++  // --- Escape: edge-triggered toggle of the in-game menu ---
++  char keys[32];
++  XQueryKeymap(m_poll_display, keys);
++  const KeyCode esc = XKeysymToKeycode(m_poll_display, XK_Escape);
++  const bool esc_down = esc && (keys[esc >> 3] & (1 << (esc & 7))) != 0;
++
++  // Require two consecutive polls plus a cooldown. XQueryKeymap occasionally
++  // reports a phantom press, and the loop runs every ~1 ms, so a bare edge
++  // test flips the menu open and shut before it can be seen.
++  const bool stable_down = esc_down && m_escape_prev_sample;
++  const auto now = std::chrono::steady_clock::now();
++  const bool cooled = now - m_last_toggle > std::chrono::milliseconds(400);
++
++  if (stable_down && !m_escape_was_down && cooled)
++  {
++    m_last_toggle = now;
++    const bool opening = !VideoCommon::g_ingame_menu_open.load(std::memory_order_relaxed);
++    VideoCommon::g_ingame_menu_open.store(opening, std::memory_order_relaxed);
++    auto& system = Core::System::GetInstance();
++    // Deliberately NOT pausing: a paused core stops presenting frames, so
++    // OnScreenUI::Finalize() never runs and the menu could never draw itself.
++    (void)system;
++    // The menu uses the normal OS pointer as its only cursor (ImGui's
++    // software cursor is disabled) - nothing to hide or restore here. Undo
++    // any blanking a previous build may have left active.
++    if (opening && Config::Get(Config::MAIN_SHOW_CURSOR) != Config::ShowCursor::Never)
++      XUndefineCursor(m_display, m_window);
++  }
++  m_escape_prev_sample = esc_down;
++
++  // The menu cannot touch the window itself - it runs on the video thread and
++  // does not own the X connection - so it raises a flag and this consumes it.
++  if (VideoCommon::g_ingame_exit_request.exchange(false, std::memory_order_relaxed))
++  {
++    // Same call the window-manager close button makes, so the shutdown is
++    // identical to closing the window (which flushes the recompiler stats).
++    Stop();
++    return;
++  }
++
++  if (VideoCommon::g_ingame_fullscreen_request.exchange(false, std::memory_order_relaxed))
++  {
++    m_window_fullscreen = !m_window_fullscreen;
++    X11Utils::ToggleFullscreen(m_display, m_window);
++    if (m_xrr_config)
++      m_xrr_config->ToggleDisplayMode(m_window_fullscreen);
++  }
++  m_escape_was_down = stable_down;
++
++  if (!VideoCommon::g_ingame_menu_open.load(std::memory_order_relaxed) || !g_presenter)
++    return;
++
++  // The key map is what lets the overlay interpret key events at all.
++  // DolphinQt normally installs it; with Qt compiled out nothing did. It has
++  // to happen after the presenter exists, so do it once, lazily.
++  if (!m_keymap_set)
++  {
++    static constexpr DolphinKeyMap key_map = {
++        XK_Tab,     XK_Left,      XK_Right, XK_Up,     XK_Down,
++        XK_Page_Up, XK_Page_Down, XK_Home,  XK_End,    XK_Insert,
++        XK_Delete,  XK_BackSpace, XK_space, XK_Return, XK_Escape,
++        XK_KP_Enter, XK_a,        XK_c,     XK_v,      XK_x,
++        XK_y,       XK_z,
++    };
++    g_presenter->SetKeyMap(key_map);
++    m_keymap_set = true;
++  }
++
++  // --- mouse: poll position and buttons for the same reason ---
++  Window root_ret, child_ret;
++  int root_x, root_y, win_x, win_y;
++  unsigned int mask;
++  if (XQueryPointer(m_poll_display, m_window, &root_ret, &child_ret, &root_x, &root_y, &win_x,
++                    &win_y, &mask))
++  {
++    Window geo_root;
++    int geo_x, geo_y;
++    unsigned int win_w = 0, win_h = 0, geo_border, geo_depth;
++    XGetGeometry(m_poll_display, m_window, &geo_root, &geo_x, &geo_y, &win_w, &win_h, &geo_border,
++                 &geo_depth);
++    const float sx = win_w ? static_cast<float>(g_presenter->GetBackbufferWidth()) / win_w : 1.0f;
++    const float sy = win_h ? static_cast<float>(g_presenter->GetBackbufferHeight()) / win_h : 1.0f;
++    g_presenter->SetMousePos(static_cast<float>(win_x) * sx, static_cast<float>(win_y) * sy);
++    u32 buttons = 0;
++    if (mask & Button1Mask)
++      buttons |= 1u << 0;
++    if (mask & Button3Mask)
++      buttons |= 1u << 1;
++    if (mask & Button2Mask)
++      buttons |= 1u << 2;
++    g_presenter->SetMousePress(buttons);
++  }
++}
++
+ void PlatformX11::ProcessEvents()
+ {
++  PollOverlayInput();
++
+   XEvent event;
+   KeySym key;
+   for (int num_events = XPending(m_display); num_events > 0; num_events--)
+diff --git a/Source/Core/VideoCommon/OnScreenUI.cpp b/Source/Core/VideoCommon/OnScreenUI.cpp
+index 451109b..daa83ea 100644
+--- a/Source/Core/VideoCommon/OnScreenUI.cpp
++++ b/Source/Core/VideoCommon/OnScreenUI.cpp
+@@ -10,12 +10,29 @@
+ #include "Common/Timer.h"
+ 
+ #include "Core/Achievements/AchievementManager.h"
++#include "AudioCommon/AudioCommon.h"
+ #include "Core/Config/AchievementSettings.h"
++#include "Core/Core.h"
++#include "Core/HW/ProcessorInterface.h"
+ #include "Core/Config/GraphicsSettings.h"
++#include "Core/Config/CheatSettings.h"
++#include "Core/Config/ConfigManager.h"
++#include <string>
+ #include "Core/Config/MainSettings.h"
+ #include "Core/Config/NetplaySettings.h"
+ #include "Core/Movie.h"
+ #include "Core/System.h"
++#include "Core/HW/GCPad.h"
++#include "InputCommon/ControlReference/ControlReference.h"
++#include "InputCommon/ControllerEmu/Control/Control.h"
++#include "InputCommon/ControllerEmu/ControlGroup/ControlGroup.h"
++#include "InputCommon/ControllerEmu/ControllerEmu.h"
++#include "InputCommon/ControllerInterface/ControllerInterface.h"
++#include "InputCommon/ControllerInterface/MappingCommon.h"
++#include "InputCommon/InputConfig.h"
++#include <chrono>
++#include <memory>
++#include <vector>
+ 
+ #include "VideoCommon/AbstractGfx.h"
+ #include "VideoCommon/AbstractPipeline.h"
+@@ -413,6 +430,471 @@ void OnScreenUI::DrawChallengesAndLeaderboards()
+ #endif  // USE_RETRO_ACHIEVEMENTS
+ }
+ 
++
++// Definition for the toggle declared in OnScreenUI.h. This file is already
++// inside namespace VideoCommon, so no wrapper here.
++std::atomic<bool> g_ingame_menu_open{false};
++std::atomic<bool> g_ingame_fullscreen_request{false};
++std::atomic<bool> g_ingame_exit_request{false};
++
++namespace
++{
++// ModernGekko in-game settings menu. Emulation deliberately keeps running:
++// pausing stops the video thread, and the video thread is what draws this.
++
++// Pac-Man World 2 palette: pellet yellow on the deep blue of the maze walls,
++// with the cherry red used for the one destructive control.
++void ApplyPacManTheme()
++{
++  ImGuiStyle& st = ImGui::GetStyle();
++  const ImVec4 yellow    = ImVec4(1.00f, 0.80f, 0.00f, 1.00f);
++  const ImVec4 yellow_hi = ImVec4(1.00f, 0.90f, 0.30f, 1.00f);
++  const ImVec4 blue      = ImVec4(0.05f, 0.09f, 0.44f, 0.96f);
++  const ImVec4 blue_mid  = ImVec4(0.10f, 0.16f, 0.60f, 1.00f);
++  const ImVec4 blue_lt   = ImVec4(0.16f, 0.24f, 0.78f, 1.00f);
++  const ImVec4 red       = ImVec4(0.85f, 0.16f, 0.16f, 1.00f);
++
++  st.WindowRounding    = 10.0f;
++  st.FrameRounding     = 7.0f;
++  st.GrabRounding      = 7.0f;
++  st.PopupRounding     = 7.0f;
++  st.WindowBorderSize  = 3.0f;
++  st.FrameBorderSize   = 1.0f;
++  st.WindowPadding     = ImVec2(14, 12);
++  st.ItemSpacing       = ImVec2(9, 8);
++
++  ImVec4* c = st.Colors;
++  c[ImGuiCol_WindowBg]        = blue;
++  c[ImGuiCol_Border]          = yellow;
++  c[ImGuiCol_TitleBg]         = blue_mid;
++  c[ImGuiCol_TitleBgActive]   = blue_mid;
++  c[ImGuiCol_Text]            = ImVec4(1.00f, 0.97f, 0.86f, 1.00f);
++  c[ImGuiCol_TextDisabled]    = ImVec4(0.70f, 0.68f, 0.55f, 1.00f);
++  c[ImGuiCol_FrameBg]         = blue_mid;
++  c[ImGuiCol_FrameBgHovered]  = blue_lt;
++  c[ImGuiCol_FrameBgActive]   = blue_lt;
++  c[ImGuiCol_Button]          = blue_mid;
++  c[ImGuiCol_ButtonHovered]   = yellow;
++  c[ImGuiCol_ButtonActive]    = yellow_hi;
++  c[ImGuiCol_CheckMark]       = yellow;
++  c[ImGuiCol_SliderGrab]      = yellow;
++  c[ImGuiCol_SliderGrabActive]= yellow_hi;
++  c[ImGuiCol_Header]          = blue_lt;
++  c[ImGuiCol_HeaderHovered]   = yellow;
++  c[ImGuiCol_HeaderActive]    = yellow_hi;
++  c[ImGuiCol_Separator]       = yellow;
++  c[ImGuiCol_PopupBg]         = blue;
++  c[ImGuiCol_ScrollbarGrab]   = yellow;
++  (void)red;
++}
++
++// Live input remapping. Mirrors what DolphinQt's MappingWidget does, minus Qt:
++// start an InputDetector, pump it once per frame while the menu draws, then turn
++// the detections into an expression and write it into the control reference.
++std::unique_ptr<ciface::Core::InputDetector> s_detector;
++ControlReference* s_detect_target = nullptr;
++bool s_detect_any_device = false;
++
++void DrawInputMapping()
++{
++  if (!Pad::IsInitialized())
++  {
++    ImGui::TextDisabled("Pad is not initialized.");
++    return;
++  }
++
++  InputConfig* const cfg = Pad::GetConfig();
++  auto* const ctrl = cfg ? cfg->GetController(0) : nullptr;
++  if (ctrl == nullptr)
++  {
++    ImGui::TextDisabled("No controller configured on port 1.");
++    return;
++  }
++
++  // The device that unqualified expressions resolve against.
++  const std::string current_device = ctrl->GetDefaultDevice().ToString();
++  ImGui::SetNextItemWidth(320.0f);
++  if (ImGui::BeginCombo("Device", current_device.c_str()))
++  {
++    for (const std::string& dev : g_controller_interface.GetAllDeviceStrings())
++    {
++      const bool selected = dev == current_device;
++      if (ImGui::Selectable(dev.c_str(), selected))
++      {
++        const auto lock = ControllerEmu::EmulatedController::GetStateLock();
++        ctrl->SetDefaultDevice(dev);
++        ctrl->UpdateReferences(g_controller_interface);
++        cfg->SaveConfig();
++      }
++      if (selected)
++        ImGui::SetItemDefaultFocus();
++    }
++    ImGui::EndCombo();
++  }
++
++  ImGui::Checkbox("Bind from any device", &s_detect_any_device);
++  if (ImGui::IsItemHovered())
++    ImGui::SetTooltip("Off: only the device above.\nOn: keyboard, mouse and every pad.");
++
++  // Pump an in-flight detection. This never blocks, so the menu keeps drawing
++  // at full rate while the user is pressing something.
++  if (s_detector)
++  {
++    const auto lock = ControllerEmu::EmulatedController::GetStateLock();
++    s_detector->Update(std::chrono::seconds(3), std::chrono::milliseconds(0),
++                       std::chrono::seconds(5));
++    if (s_detector->IsComplete())
++    {
++      auto results = s_detector->TakeResults();
++      if (s_detect_target != nullptr &&
++          ciface::MappingCommon::ContainsCompleteDetection(results))
++      {
++        ciface::MappingCommon::RemoveSpuriousTriggerCombinations(&results);
++        s_detect_target->SetExpression(ciface::MappingCommon::BuildExpression(
++            results, ctrl->GetDefaultDevice(), ciface::MappingCommon::Quote::On));
++        ctrl->UpdateSingleControlReference(g_controller_interface, s_detect_target);
++        cfg->SaveConfig();
++      }
++      s_detector.reset();
++      s_detect_target = nullptr;
++    }
++  }
++
++  ImGui::Separator();
++
++  int id = 0;
++  for (const auto& group : ctrl->groups)
++  {
++    if (group->controls.empty())
++      continue;
++
++    const std::string& group_label = group->ui_name.empty() ? group->name : group->ui_name;
++    if (!ImGui::TreeNode(group_label.c_str()))
++      continue;
++
++    for (const auto& control : group->controls)
++    {
++      ControlReference* const ref = control->control_ref.get();
++      // Outputs are rumble motors, not something to bind a key to.
++      if (ref == nullptr || !ref->IsInput())
++        continue;
++
++      ImGui::PushID(id++);
++
++      const std::string& name = control->ui_name.empty() ? control->name : control->ui_name;
++      ImGui::TextUnformatted(name.c_str());
++      ImGui::SameLine(150.0f);
++
++      std::string label;
++      if (s_detector && s_detect_target == ref)
++        label = "[ press now ]";
++      else if (ref->GetExpression().empty())
++        label = "-";
++      else
++        label = ref->GetExpression();
++
++      if (ImGui::Button(label.c_str(), ImVec2(240.0f, 0.0f)) && !s_detector)
++      {
++        std::vector<std::string> devices{ctrl->GetDefaultDevice().ToString()};
++        if (s_detect_any_device)
++          devices = g_controller_interface.GetAllDeviceStrings();
++
++        s_detect_target = ref;
++        s_detector = std::make_unique<ciface::Core::InputDetector>();
++        const auto lock = ControllerEmu::EmulatedController::GetStateLock();
++        s_detector->Start(g_controller_interface, devices);
++      }
++
++      ImGui::SameLine();
++      if (ImGui::SmallButton("Clear"))
++      {
++        const auto lock = ControllerEmu::EmulatedController::GetStateLock();
++        ref->SetExpression("");
++        ctrl->UpdateSingleControlReference(g_controller_interface, ref);
++        cfg->SaveConfig();
++      }
++
++      ImGui::PopID();
++    }
++    ImGui::TreePop();
++  }
++
++  ImGui::Separator();
++  if (ImGui::Button("Reload from file"))
++    Pad::LoadConfig();
++  ImGui::SameLine();
++  if (ImGui::Button("Save mappings"))
++    cfg->SaveConfig();
++}
++
++// Modding. Four independent surfaces, from least to most invasive:
++//
++//   1. Custom textures  - PNG replacements matched by content hash.
++//   2. Graphics mods    - draw-call level edits (hide/tint/replace geometry).
++//   3. Cheat codes      - Gecko/AR, i.e. arbitrary game code and memory.
++//   4. Raw game files   - this port boots from an EXTRACTED disc, so all 1806
++//                         asset files are ordinary files on disk and can just
++//                         be edited or swapped. That is the "change anything"
++//                         route; MODDING.txt documents the formats.
++//
++// Everything here is Dolphin functionality that simply had no way to be
++// reached without a GUI. Nothing modifies the shipped executable.
++void DrawModdingSection()
++{
++  const std::string game_id = SConfig::GetInstance().GetGameID();
++
++  ImGui::TextDisabled("Textures");
++  bool custom = Config::Get(Config::GFX_HIRES_TEXTURES);
++  if (ImGui::Checkbox("Load custom textures", &custom))
++    Config::SetBaseOrCurrent(Config::GFX_HIRES_TEXTURES, custom);
++  if (ImGui::IsItemHovered())
++    ImGui::SetTooltip("PNG packs in Load/Textures/%s/. Re-enter a level to apply.",
++                      game_id.c_str());
++
++  if (custom)
++  {
++    bool prefetch = Config::Get(Config::GFX_CACHE_HIRES_TEXTURES);
++    if (ImGui::Checkbox("  Preload into RAM", &prefetch))
++      Config::SetBaseOrCurrent(Config::GFX_CACHE_HIRES_TEXTURES, prefetch);
++    if (ImGui::IsItemHovered())
++      ImGui::SetTooltip("Costs memory and load time, removes mid-level hitching.");
++  }
++
++  bool dump = Config::Get(Config::GFX_DUMP_TEXTURES);
++  if (ImGui::Checkbox("Dump textures while playing", &dump))
++    Config::SetBaseOrCurrent(Config::GFX_DUMP_TEXTURES, dump);
++  if (ImGui::IsItemHovered())
++    ImGui::SetTooltip("Writes what the game draws to Dump/Textures/%s/.\n"
++                      "Turn back off when done - it costs performance and disk.",
++                      game_id.c_str());
++
++  ImGui::Spacing();
++  ImGui::TextDisabled("Geometry and code");
++
++  bool gfxmods = Config::Get(Config::GFX_MODS_ENABLE);
++  if (ImGui::Checkbox("Graphics mods", &gfxmods))
++    Config::SetBaseOrCurrent(Config::GFX_MODS_ENABLE, gfxmods);
++  if (ImGui::IsItemHovered())
++    ImGui::SetTooltip("Loads mod packs from Load/GraphicMods/.\n"
++                      "These can hide, tint, move or replace individual draw calls.");
++
++  bool cheats = Config::Get(Config::MAIN_ENABLE_CHEATS);
++  if (ImGui::Checkbox("Gecko / AR codes", &cheats))
++    Config::SetBaseOrCurrent(Config::MAIN_ENABLE_CHEATS, cheats);
++  if (ImGui::IsItemHovered())
++    ImGui::SetTooltip("Runs code patches from GameSettings/%s.ini.\n"
++                      "This can change any game behaviour. Takes effect on restart.",
++                      game_id.c_str());
++
++  ImGui::Spacing();
++  ImGui::TextDisabled("Load/Textures/%s/   Load/GraphicMods/", game_id.c_str());
++  ImGui::TextDisabled("Game/files/  <- all 1806 raw assets, editable directly");
++  ImGui::TextDisabled("Full instructions in MODDING.txt");
++}
++
++void DrawIngameMenu()
++{
++  if (!g_ingame_menu_open.load(std::memory_order_relaxed))
++    return;
++
++  auto& system = Core::System::GetInstance();
++  ImGuiIO& io = ImGui::GetIO();
++
++  // The OS pointer is the one and only cursor. Drawing ImGui's software
++  // cursor on top produced a second (white) arrow - the mapping from window
++  // to backbuffer coordinates is proportional, so the real pointer already
++  // sits exactly over whatever a click will hit.
++  io.MouseDrawCursor = false;
++  ApplyPacManTheme();
++
++  ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
++                          ImGuiCond_Always, ImVec2(0.5f, 0.5f));
++  ImGui::SetNextWindowBgAlpha(0.92f);
++
++  const bool shown = ImGui::Begin("Settings", nullptr,
++                   ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
++                       ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
++  if (shown)
++  {
++    ImGui::TextDisabled("Game continues running behind this menu.");
++    ImGui::Separator();
++
++    // --- video ---
++    int scale = Config::Get(Config::GFX_EFB_SCALE);
++    const char* const scales[] = {"Auto", "Native (640x528)", "2x", "3x", "4x",
++                                  "5x",   "6x",               "7x", "8x"};
++    if (scale >= 0 && scale < IM_ARRAYSIZE(scales))
++    {
++      if (ImGui::Combo("Internal resolution", &scale, scales, IM_ARRAYSIZE(scales)))
++        Config::SetBaseOrCurrent(Config::GFX_EFB_SCALE, scale);
++    }
++
++    // Pac-Man World 2 is a 4:3 game. Rendering it "correctly" at 16:9 needs
++    // both halves: the hack widens the projection matrix so geometry is drawn
++    // with a wider field of view instead of being stretched, and the aspect
++    // mode makes the output 16:9. Either one alone looks wrong.
++    bool wide_hack = Config::Get(Config::GFX_WIDESCREEN_HACK);
++    if (ImGui::Checkbox("16:9 widescreen hack", &wide_hack))
++    {
++      Config::SetBaseOrCurrent(Config::GFX_WIDESCREEN_HACK, wide_hack);
++      // Pair it with a 16:9 output, otherwise the wider FOV is squeezed back
++      // into a 4:3 frame and everything looks thin.
++      Config::SetBaseOrCurrent(Config::GFX_ASPECT_RATIO,
++                               wide_hack ? AspectMode::ForceWide : AspectMode::Auto);
++    }
++
++    int aspect = static_cast<int>(Config::Get(Config::GFX_ASPECT_RATIO));
++    const char* const aspects[] = {"Auto", "Force 16:9", "Force 4:3", "Stretch"};
++    if (aspect >= 0 && aspect < IM_ARRAYSIZE(aspects))
++    {
++      if (ImGui::Combo("Aspect ratio", &aspect, aspects, IM_ARRAYSIZE(aspects)))
++        Config::SetBaseOrCurrent(Config::GFX_ASPECT_RATIO, static_cast<AspectMode>(aspect));
++    }
++
++
++    // --- display ---
++    if (ImGui::Button("Toggle fullscreen", ImVec2(-1, 0)))
++      g_ingame_fullscreen_request.store(true, std::memory_order_relaxed);
++
++    int msaa_idx = 0;
++    const u32 msaa_now = Config::Get(Config::GFX_MSAA);
++    const u32 msaa_vals[] = {1u, 2u, 4u, 8u};
++    for (int i = 0; i < 4; ++i)
++      if (msaa_vals[i] == msaa_now) msaa_idx = i;
++    const char* const msaa_names[] = {"Off", "2x", "4x", "8x"};
++    if (ImGui::Combo("Anti-aliasing (MSAA)", &msaa_idx, msaa_names, 4))
++      Config::SetBaseOrCurrent(Config::GFX_MSAA, msaa_vals[msaa_idx]);
++
++    bool ssaa = Config::Get(Config::GFX_SSAA);
++    if (ImGui::Checkbox("Supersampling (SSAA)", &ssaa))
++      Config::SetBaseOrCurrent(Config::GFX_SSAA, ssaa);
++
++    // --- post-processing ---
++    // "Scanlines" used to be listed here mapped to nightvision2scanlines, which
++    // is a night-vision shader with scanlines bolted on - it tinted everything
++    // green. Removed; CRT Sharp is the scanline-only option now.
++    static const char* const shaders[] = {"(off)",   "CRT",       "CRT Sharp", "CRT Slot Mask",
++                                          "CRT Heavy", "FXAA",    "Grayscale"};
++    static const char* const shader_ids[] = {"",          "CRT",  "CRT-Sharp", "CRT-Slot-Mask",
++                                             "CRT-Heavy", "FXAA", "grayscale"};
++    const std::string cur_shader = Config::Get(Config::GFX_ENHANCE_POST_SHADER);
++    int shader_idx = 0;
++    for (int i = 0; i < IM_ARRAYSIZE(shader_ids); ++i)
++      if (cur_shader == shader_ids[i]) shader_idx = i;
++    if (ImGui::Combo("Post-process", &shader_idx, shaders, IM_ARRAYSIZE(shaders)))
++      Config::SetBaseOrCurrent(Config::GFX_ENHANCE_POST_SHADER,
++                               std::string(shader_ids[shader_idx]));
++
++    // --- gamma -------------------------------------------------------------
++    // Dolphin's colour correction decodes the frame with "game gamma" and
++    // re-encodes it for an sRGB display, so the net transfer is roughly
++    // pow(c, game_gamma / 2.2): 2.2 is neutral and larger values darken the
++    // midtones. Pac-Man World 2 also shipped on PS2 and Xbox, and those ports
++    // were mastered against different assumed display gammas, which is the
++    // main reason they don't look alike. These presets approximate that; the
++    // slider below is there because taste and panel calibration vary.
++    {
++      static const char* const gamma_names[] = {"Native (off)", "GameCube", "Xbox (brighter)",
++                                                "PS2 (darker)", "Custom"};
++      static const float gamma_vals[] = {0.0f, 2.35f, 2.20f, 2.60f, 0.0f};
++      const bool cc_on = Config::Get(Config::GFX_CC_CORRECT_GAMMA);
++      const float cur_gamma = Config::Get(Config::GFX_CC_GAME_GAMMA);
++
++      int gamma_idx = 0;
++      if (cc_on)
++      {
++        gamma_idx = 4;  // custom unless it matches a preset
++        for (int i = 1; i <= 3; ++i)
++        {
++          if (cur_gamma > gamma_vals[i] - 0.005f && cur_gamma < gamma_vals[i] + 0.005f)
++            gamma_idx = i;
++        }
++      }
++
++      if (ImGui::Combo("Gamma", &gamma_idx, gamma_names, IM_ARRAYSIZE(gamma_names)))
++      {
++        if (gamma_idx == 0)
++        {
++          Config::SetBaseOrCurrent(Config::GFX_CC_CORRECT_GAMMA, false);
++        }
++        else
++        {
++          Config::SetBaseOrCurrent(Config::GFX_CC_CORRECT_GAMMA, true);
++          if (gamma_idx != 4)
++            Config::SetBaseOrCurrent(Config::GFX_CC_GAME_GAMMA, gamma_vals[gamma_idx]);
++        }
++      }
++
++      if (Config::Get(Config::GFX_CC_CORRECT_GAMMA))
++      {
++        float g = Config::Get(Config::GFX_CC_GAME_GAMMA);
++        if (ImGui::SliderFloat("  gamma value", &g, Config::GFX_CC_GAME_GAMMA_MIN,
++                               Config::GFX_CC_GAME_GAMMA_MAX, "%.2f"))
++          Config::SetBaseOrCurrent(Config::GFX_CC_GAME_GAMMA, g);
++      }
++    }
++
++    ImGui::Separator();
++
++    bool vsync = Config::Get(Config::GFX_VSYNC);
++    if (ImGui::Checkbox("V-Sync", &vsync))
++      Config::SetBaseOrCurrent(Config::GFX_VSYNC, vsync);
++
++    bool show_fps = Config::Get(Config::GFX_SHOW_FPS);
++    if (ImGui::Checkbox("Show FPS", &show_fps))
++      Config::SetBaseOrCurrent(Config::GFX_SHOW_FPS, show_fps);
++
++    ImGui::Separator();
++
++    // --- audio ---
++    int volume = Config::Get(Config::MAIN_AUDIO_VOLUME);
++    if (ImGui::SliderInt("Volume", &volume, 0, 100))
++    {
++      Config::SetBaseOrCurrent(Config::MAIN_AUDIO_VOLUME, volume);
++      AudioCommon::UpdateSoundStream(system);
++    }
++
++    bool muted = Config::Get(Config::MAIN_AUDIO_MUTED);
++    if (ImGui::Checkbox("Mute", &muted))
++    {
++      Config::SetBaseOrCurrent(Config::MAIN_AUDIO_MUTED, muted);
++      AudioCommon::UpdateSoundStream(system);
++    }
++
++    ImGui::Separator();
++
++    if (ImGui::CollapsingHeader("Mods"))
++      DrawModdingSection();
++
++    if (ImGui::CollapsingHeader("Input mapping"))
++      DrawInputMapping();
++
++    ImGui::Separator();
++
++    if (ImGui::Button("Resume", ImVec2(120, 0)))
++      g_ingame_menu_open.store(false, std::memory_order_relaxed);
++    ImGui::SameLine();
++    if (ImGui::Button("Reset", ImVec2(120, 0)))
++    {
++      g_ingame_menu_open.store(false, std::memory_order_relaxed);
++      system.GetProcessorInterface().ResetButton_Tap();
++    }
++    ImGui::SameLine();
++    if (ImGui::Button("Exit", ImVec2(120, 0)))
++    {
++      // Hand this to the platform layer so shutdown follows the same path as
++      // closing the window: core stopped, MainLoop ended, stats flushed.
++      g_ingame_menu_open.store(false, std::memory_order_relaxed);
++      g_ingame_exit_request.store(true, std::memory_order_relaxed);
++    }
++
++    ImGui::Separator();
++    ImGui::TextDisabled("Esc closes  -  Ctrl+Esc quits  -  F10 pause");
++  }
++  ImGui::End();
++}
++}  // namespace
++
+ void OnScreenUI::Finalize()
+ {
+   auto lock = GetImGuiLock();
+@@ -422,6 +904,7 @@ void OnScreenUI::Finalize()
+   DrawDebugText();
+   OSD::DrawMessages();
+   DrawChallengesAndLeaderboards();
++  DrawIngameMenu();
+   ImGui::Render();
+ 
+   // Check for font changes
+diff --git a/Source/Core/VideoCommon/OnScreenUI.h b/Source/Core/VideoCommon/OnScreenUI.h
+index e9a14e0..68d7d7d 100644
+--- a/Source/Core/VideoCommon/OnScreenUI.h
++++ b/Source/Core/VideoCommon/OnScreenUI.h
+@@ -3,6 +3,7 @@
+ 
+ #pragma once
+ 
++#include <atomic>
+ #include <map>
+ #include <memory>
+ #include <mutex>
+@@ -19,6 +20,17 @@ struct ImTextureData;
+ 
+ namespace VideoCommon
+ {
++// ModernGekko: in-game settings menu. Set from the platform layer's key
++// handler, read by OnScreenUI::Finalize() which draws the menu into the
++// existing in-game ImGui context.
++extern std::atomic<bool> g_ingame_menu_open;
++// Set by the menu, consumed by the platform layer, which owns the window.
++extern std::atomic<bool> g_ingame_fullscreen_request;
++// Set by the menu's Exit button, consumed by the platform layer. Exiting has
++// to go through the platform: Core::Stop() alone stops the emulated machine
++// but leaves the platform's MainLoop running, so the window would linger.
++extern std::atomic<bool> g_ingame_exit_request;
++
+ // OnScreenUI handles all the ImGui rendering.
+ class OnScreenUI
+ {

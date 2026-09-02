@@ -1,0 +1,63 @@
+# ============================================================
+#  GAME CONTENT - NEVER COMMIT ANY OF THIS
+#  Everything below is Bandai Namco's copyrighted work, or a
+#  derivative of it. Publishing any of it is what turns a legal
+#  tooling project into an infringing one.
+# ============================================================
+
+# Disc images and dumps
+*.iso
+*.rvz
+*.gcm
+*.gcz
+*.ciso
+*.nkit
+*.nkit.iso
+*.7z
+*.rar
+*.zip
+
+# Executables and code extracted from the disc
+*.dol
+*.elf
+*.bin
+*.map
+main.dol*
+sys/
+files/
+disc/
+Game/
+
+# Recompiled modules - THESE CONTAIN THE GAME'S OWN CODE,
+# translated to x86. A compiled artifact is still a derivative work.
+*_recomp.so
+*_recomp.dll
+*_recomp.dylib
+out/
+build/
+
+# Game assets
+*.tpl
+*.amf
+*.hxf
+*.dsp
+*.sam
+*.sdi
+*.pro
+*.poo
+*.gcb
+*.thp
+*.ast
+*.bnr
+
+# Saves and per-user runtime state
+userdata/
+*.gci
+*.raw
+*.sav
+
+# Scratch
+work/
+*.log
+*.png
+!docs/*.png

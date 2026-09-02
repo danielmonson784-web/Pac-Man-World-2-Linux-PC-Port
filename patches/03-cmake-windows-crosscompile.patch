@@ -1,0 +1,36 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -112,7 +112,14 @@
+     endif()
+     set(ENABLE_HWDB OFF CACHE BOOL "" FORCE)
+     set(ENABLE_EVDEV OFF CACHE BOOL "" FORCE)
+-    set(ENABLE_WAYLAND ON CACHE BOOL "" FORCE)
++    # Wayland is Linux-only. Forcing it ON unconditionally breaks any
++    # cross-compile to Windows/macOS, where the later find_file(xdg-shell.xml)
++    # is REQUIRED and cannot be satisfied.
++    if(WIN32 OR APPLE)
++        set(ENABLE_WAYLAND OFF CACHE BOOL "" FORCE)
++    else()
++        set(ENABLE_WAYLAND ON CACHE BOOL "" FORCE)
++    endif()
+     set(ENABLE_EGL OFF CACHE BOOL "" FORCE)
+     set(USE_SYSTEM_SDL3 OFF CACHE BOOL "" FORCE)
+     # SDL bundles its own copy of the macOS hidapi backend
+@@ -281,7 +288,7 @@
+         target_compile_definitions(moderngekko PRIVATE _M_GENERIC=1)
+     endif()
+     target_link_libraries(moderngekko PRIVATE core uicommon)
+-    if(TARGET PkgConfig::X11)
++    if(TARGET PkgConfig::X11 AND NOT WIN32)
+         target_sources(moderngekko PRIVATE
+             vendor/dolphin/Source/Core/DolphinNoGUI/PlatformX11.cpp)
+         target_link_libraries(moderngekko PRIVATE PkgConfig::X11)
+@@ -291,7 +298,7 @@
+         endif()
+         target_compile_definitions(moderngekko PRIVATE HAVE_X11=1)
+     endif()
+-    if(TARGET PkgConfig::WAYLAND)
++    if(TARGET PkgConfig::WAYLAND AND NOT WIN32)
+         find_program(MODERNGEKKO_WAYLAND_SCANNER wayland-scanner
+             HINTS "${_moderngekko_sdk_usr}/bin" REQUIRED)
+         find_file(MODERNGEKKO_XDG_SHELL_XML xdg-shell.xml

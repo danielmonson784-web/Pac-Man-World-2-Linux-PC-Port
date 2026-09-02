@@ -1,0 +1,53 @@
+--- a/Source/Core/AudioCommon/Mixer.h
++++ b/Source/Core/AudioCommon/Mixer.h
+@@ -45,6 +45,12 @@
+   void SetStreamInputSampleRateDivisor(u32 rate_divisor);
+   void SetGBAInputSampleRate(std::size_t device_number, u32 sample_rate);
+ 
++  // Master volume, applied in Mix()/MixSurround(). SoundStream::SetVolume is
++  // an empty virtual that only Cubeb/OpenAL/OpenSLES override, so on an
++  // ALSA/PulseAudio build volume and mute otherwise do nothing at all.
++  // Applying the gain here works for every backend.
++  void SetMasterVolume(int volume) { m_master_volume.store(volume, std::memory_order_relaxed); }
++
+   void SetStreamingVolume(u32 lvolume, u32 rvolume);
+   void SetWiimoteSpeakerVolume(std::size_t wiimote_index, u32 lvolume, u32 rvolume);
+   std::size_t MixWiimoteSpeaker(std::size_t wiimote_index, s16* samples, std::size_t num_samples);
+@@ -184,6 +190,7 @@
+       MixerFifo{this, GBA_SAMPLE_RATE_DIVIDEND / 65536, GBA_SAMPLE_RATE_DIVIDEND},
+       MixerFifo{this, GBA_SAMPLE_RATE_DIVIDEND / 65536, GBA_SAMPLE_RATE_DIVIDEND},
+   };
++  std::atomic<int> m_master_volume{100};
+   u32 m_output_sample_rate;
+ 
+   AudioCommon::SurroundDecoder m_surround_decoder;
+--- a/Source/Core/AudioCommon/Mixer.cpp
++++ b/Source/Core/AudioCommon/Mixer.cpp
+@@ -179,6 +179,14 @@
+   for (auto& mixer : m_gba_mixers)
+     mixer.Mix(samples, num_samples);
+ 
++  const int volume = m_master_volume.load(std::memory_order_relaxed);
++  if (volume != 100)
++  {
++    for (std::size_t i = 0; i < num_samples * 2; ++i)
++      samples[i] = static_cast<s16>(
++          std::clamp((static_cast<int>(samples[i]) * volume) / 100, -32768, 32767));
++  }
++
+   return num_samples;
+ }
+ 
+--- a/Source/Core/AudioCommon/AudioCommon.cpp
++++ b/Source/Core/AudioCommon/AudioCommon.cpp
+@@ -176,6 +176,10 @@
+     const int volume =
+         Config::Get(Config::MAIN_AUDIO_MUTED) ? 0 : Config::Get(Config::MAIN_AUDIO_VOLUME);
+     sound_stream->SetVolume(volume);
++    // Backends that do not implement SetVolume (ALSA, PulseAudio) still honour
++    // the master gain in the mixer.
++    if (Mixer* mixer = sound_stream->GetMixer())
++      mixer->SetMasterVolume(volume);
+   }
+ }
+ 

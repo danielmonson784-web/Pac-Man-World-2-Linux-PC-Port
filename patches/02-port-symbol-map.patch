@@ -1,0 +1,40 @@
+--- a/tools/moderngekko_port.cpp
++++ b/tools/moderngekko_port.cpp
+@@ -670,14 +670,26 @@
+       pgo_compile_flags += " -Werror=profile-instr-out-of-date";
+   }
+ 
++  // Optional symbol map beside sys/main.dol. DolRecomp turns it into named
++  // DOLRECOMP_SYMBOL_* constants, so code mods can hook by name instead of by
++  // raw guest address. Its hash joins the cache identity: changing the map has
++  // to invalidate the cached module, or renames would silently not take.
++  const fs::path symbol_map = game.main_dol.parent_path() / "main.map";
++  const bool has_symbol_map = fs::is_regular_file(symbol_map);
++  const auto symbol_map_hash =
++      has_symbol_map ? moderngekko::HashFileSha256(symbol_map) : std::nullopt;
++  if (has_symbol_map)
++    std::cout << "Symbol map: " << symbol_map << '\n';
++
+   const std::string identity = std::string(RECOMPCORE_REVISION) + "|dolrecomp=" +
+       std::string(DOLRECOMP_REVISION) + "|module-abi=" +
+       std::to_string(MODERNGEKKO_MODULE_ABI_VERSION) + "|cpu-abi=" +
+       std::to_string(MODERNGEKKO_CPU_ABI_VERSION) + "|" + compiler_identity + "|" +
+       std::string(architecture) + "|" + flags + "|backend=" + options.backend +
+       "|patches=" + patches.fingerprint + "|dolrecomp_binary=" +
+-      *dolrecomp_hash + "|" + moderngekko::pgo::PgoCacheIdentity(options.pgo) +
+-      DolRecompCodegenIdentity();
++      *dolrecomp_hash + "|map=" +
++      (symbol_map_hash ? *symbol_map_hash : std::string("none")) + "|" +
++      moderngekko::pgo::PgoCacheIdentity(options.pgo) + DolRecompCodegenIdentity();
+   std::ostringstream key_tail;
+   key_tail << std::hex << std::setfill('0') << std::setw(16) << Fnv1a(identity);
+   const std::string cache_key = game.dol_sha256 + "-" + key_tail.str();
+@@ -757,6 +769,8 @@
+   std::string generate = Quote(dolrecomp) + " -j" +
+                          std::to_string(std::max(1u, std::thread::hardware_concurrency())) +
+                          " --backend=" + options.backend + " ";
++  if (has_symbol_map)
++    generate += "--map " + Quote(symbol_map) + " ";
+   if (game.platform == moderngekko::GamePlatform::GameCube)
+     generate += "--cpu gekko --gamecube " + Quote(recomp_dol) + " " + Quote(generated_parent);
+   else
