@@ -31,8 +31,8 @@ Tooling and patches for building a **native Linux port of Pac-Man World 2**
 | `04-ingame-settings-menu` | In-game settings menu on Escape (video, audio, input remapping, mods, clean exit). |
 | `05-audio-volume-alsa-pulse` | Volume/mute silently did nothing on ALSA/PulseAudio — `SoundStream::SetVolume` is an empty virtual on those backends. Applies the gain in the mixer instead. |
 
-Patches 01, 03 and 05 are upstream bugs, not port-specific hacks, and are worth
-reporting upstream.
+Patches 01, 03 and 05 are upstream bugs rather than port-specific hacks.
+Write-ups suitable for filing are in `docs/upstream-issues/`.
 
 ---
 
