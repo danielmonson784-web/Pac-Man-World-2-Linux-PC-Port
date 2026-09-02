@@ -81,9 +81,10 @@ an ordinary file you can edit or replace in place:
 
 No repacking step. Change a file, launch, it is used.
 
-  IMPORTANT: back up before editing. The pristine originals are also in
-  disc/PacManWorld2/files/ in the build tree - copy a file back from there to
-  undo a change. There is no in-game "restore".
+  IMPORTANT: back up before editing. There is no in-game "restore", and the
+  only pristine source is your own disc image. To undo a change, delete
+  Game/sys and Game/files, put your disc image back in Game/, and run play.sh
+  - it re-extracts everything from scratch.
 
   Editing files here changes what the game loads, but it cannot change the
   game's compiled code - that is what Gecko codes (section 3) are for.
@@ -93,6 +94,6 @@ NOTES
 -----
 - None of this modifies the executable or the recompiled module.
 - To go fully stock: clear Load/Textures/GP2EAF/ and Load/GraphicMods/, untick
-  the Mods boxes, and restore any edited files from disc/PacManWorld2/.
+  the Mods boxes, and re-extract raw files as described above.
 - Shaders are separate: Escape -> Post-process. Drop extra .glsl files into
   Sys/Shaders/ to add your own; the menu lists a curated set.
