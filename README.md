@@ -118,6 +118,23 @@ The first launch verifies the disc, extracts it and generates the symbol map;
 every launch after that goes straight to the game. With no disc image present
 it explains what to do rather than failing obscurely.
 
+**Let the first run finish.** It recompiles the game to native code — 121 C
+files, every core busy, several minutes, a few GB of RAM. That is the compiler
+working, not a hang, and it is the single most likely thing to be mistaken for
+one. The launcher says so up front and shows a progress line rather than the
+build's raw output, which otherwise buries the notice under 121 lines of
+200-character paths.
+
+Interrupting is safe: Ctrl-C stops the whole build tree and clears the partial
+module so a retry starts clean. Verified by running `play.sh` on a pty and
+writing `0x03` to the terminal, so the tty driver raises SIGINT for the
+foreground process group exactly as Ctrl-C does — afterwards, zero `cc1`, zero
+`ninja`, zero `moderngekko-port`, and no partial module left behind.
+
+(If you test this yourself, note that a script started with `&` has SIGINT set
+to ignore, so `kill -INT` on a background job proves nothing. That false
+negative made this look broken when it was not.)
+
 ```
 Game/
   Pac-Man World 2 (USA).iso      <- you provide this
