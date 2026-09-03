@@ -663,3 +663,30 @@ recorder/replayer code retained for reference. Port ships at native 60.
 The upstream case (docs/upstream-issues/04) now carries: a working
 capture/replay/present/pacing prototype, the complete list of per-draw state
 that must be reproduced, this bug ledger, and the CommitBuffer ordering trap.
+
+---
+
+## Final outcome (2026-09-02): interpolation removed, port ships at 60
+
+Transform interpolation was pursued to the point of rendering visibly smoother
+frames at 119 FPS, and then to a narrower version that replaced only the VI
+duplicate frames of 30 FPS cutscenes. Both were removed.
+
+The narrow version failed on its own terms: artifacts during loading, and 53 FPS
+where it should have produced 60 — the extra render cost more than the half
+frame it was filling. Before that, a stale always-on interpolation path left
+over from the 120 FPS work was still running alongside it, which is why the
+first test read 120 FPS instead of 60.
+
+All of it is now gone rather than merely disabled: ~29 KB across
+`VertexManagerBase.{h,cpp}` (the draw recorder, arenas, replay engine and
+per-draw capture), `Present.{h,cpp}` (`PresentInterpolated`), the `RecordClear`
+call in `BPFunctions.cpp`, the EFB-copy epoch in `TextureCacheBase.cpp`, and the
+support accessors added for it (`GetBoundTextures`, `GetIndexDataStart`,
+`GetStoredViewportAndScissor`) plus the `g_hifps_*` atomics. The build has no
+unused-variable warnings left from it and measures a steady 59.9 FPS.
+
+The conclusion from the whole investigation stands: this engine is fixed-step,
+every route to a genuinely higher guest frame rate was eliminated by
+measurement, and interpolation could not be made to render correctly in real
+levels. 60 FPS, rendered honestly, is the ceiling here.

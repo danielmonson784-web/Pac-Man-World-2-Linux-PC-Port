@@ -79,3 +79,18 @@ display. Every alternative was tested and eliminated:
 
 Transform interpolation is the only remaining approach, and draw-call retention
 is the one missing primitive.
+
+---
+
+## Outcome in this port
+
+Implemented against a local Dolphin tree and then removed. Worth recording
+before anyone repeats it: capture and replay were made to work, and produced
+visibly smoother motion, but the replayed frames never rendered correctly in
+real levels — artifacts on load, and 53 FPS where the extra render should have
+filled a 30 FPS gap to 60. The port ships at a straight 60 instead.
+
+That is not an argument against the feature request. It is an argument that
+doing it *outside* the renderer, by reconstructing draw state after the fact,
+is the wrong layer — which is precisely why retaining draw calls upstream would
+help. Full failure log in `docs/framerate-investigation.md`.

@@ -1,3 +1,553 @@
+diff --git a/Data/Sys/GameSettings/GP2EAF.ini b/Data/Sys/GameSettings/GP2EAF.ini
+new file mode 100644
+index 0000000..1184adc
+--- /dev/null
++++ b/Data/Sys/GameSettings/GP2EAF.ini
+@@ -0,0 +1,198 @@
++# GP2EAF - Pac-Man World 2 : 16:9 baked into the DOL
++#
++#    58 data/constant writes
++#   101 cave words at 0x8020C57C (404 bytes of 4004)
++#    20 'b <cave>' hooks = 13 wiki + 7 added
++#
++# Every 'fmr f4,f3' in the binary was enumerated (34) and grouped by the
++# draw function its following bl reaches. Two functions matter:
++#   0x8007095C - 6 sites, all 6 hooked by the wiki code (complete)
++#   0x80070934 - 9 sites, only 2 hooked by the wiki code; the other 7
++#                are added here. Missing them left the front-end menu
++#                and other 2D elements stretched.
++# The remaining 19 sites call unrelated functions and are left alone.
++
++[OnFrame]
++$16:9 Widescreen
++0x8000328C:dword:0x3F40C0C1
++0x80003290:dword:0x3D4CCCCD
++0x80003294:dword:0x3EC0C0C1
++0x80052378:dword:0xC06B6F8C
++0x8005ADF0:dword:0x481B178C
++0x8005AE70:dword:0x481B1720
++0x8006F3F0:dword:0x4819D1B4
++0x8007056C:dword:0x4819C04C
++0x80085B40:dword:0x48186B80
++0x80085CA4:dword:0x48186A30
++0x80085CE4:dword:0x48186A04
++0x80085D24:dword:0x481869D8
++0x80097A5C:dword:0x3D608000
++0x80097A64:dword:0xC36B3290
++0x800F8104:dword:0x481144E8
++0x800F81BC:dword:0x48114444
++0x800F825C:dword:0x481143B8
++0x800F837C:dword:0x481142AC
++0x800F8440:dword:0x481141FC
++0x800F84DC:dword:0x48114174
++0x800F866C:dword:0x48113F74
++0x800F8690:dword:0x48113FD4
++0x800F89D4:dword:0x48113CB0
++0x80147810:dword:0x480C4E88
++0x80147844:dword:0x480C4E68
++0x80175F30:dword:0x48096740
++0x801CF680:dword:0x471A8000
++0x801D2BE0:dword:0x3E0F82B6
++0x801D2BF4:dword:0x3DCA35BB
++0x801D3190:dword:0x3F4287A6
++0x801D6E90:dword:0x3CAD7A47
++0x801D6E98:dword:0x3C21E998
++0x801D6E9C:dword:0x3C6C1F53
++0x801D6EA0:dword:0x3D06ED54
++0x801D6EA4:dword:0x3F1A33CD
++0x801D6EA8:dword:0x442A0000
++0x801D6F4C:dword:0x3CAD7A47
++0x801D6F64:dword:0x3CAD7A47
++0x801D6F8C:dword:0x3F109091
++0x801D9814:dword:0x3DF92843
++0x801DBAB8:dword:0x3EF84A36
++0x801DBAC0:dword:0x3B76B949
++0x801DBAD4:dword:0x3EA1E998
++0x801DBCA0:dword:0x3CE74DB4
++0x801DBCA4:dword:0x3D1A33CD
++0x801DBFA4:dword:0x3EC32990
++0x801DBFAC:dword:0x3EAFE316
++0x801DC008:dword:0x3D21E998
++0x801DC020:dword:0x3CE74DB4
++0x801DC078:dword:0x3C390AF6
++0x801DC090:dword:0x3EE200B9
++0x801DC130:dword:0x3EC32990
++0x801DF39C:dword:0x3CB2DFEE
++0x801DF3A8:dword:0x3CB90AF6
++0x801E1498:dword:0x40109091
++0x801E1AD4:dword:0x3E263FD9
++0x801E1AE0:dword:0x3EA1E998
++0x801E1AE4:dword:0x3EBA9BE4
++0x801E1AEC:dword:0x3CF6B949
++0x801E1B1C:dword:0x3E97E9D5
++0x801E1B20:dword:0x3EB2E619
++0x801E27F0:dword:0x3D1408C5
++0x801E2848:dword:0x3E674DB4
++0x801E29E4:dword:0x3E9F9FA0
++0x801E29EC:dword:0x3F303030
++0x801E29F8:dword:0x3ED9730D
++0x801E2A34:dword:0x3E2D7A47
++0x801E2A48:dword:0x3E1A33CD
++0x801EA138:dword:0x3ECDE25D
++0x801EA154:dword:0x3D0AC839
++0x801F0524:dword:0x442A0000
++0x8020C57C:dword:0xFC801890
++0x8020C580:dword:0x3D408000
++0x8020C584:dword:0xC0AA328C
++0x8020C588:dword:0xEC630172
++0x8020C58C:dword:0x4BE4E868
++0x8020C590:dword:0xFC801890
++0x8020C594:dword:0x3D408000
++0x8020C598:dword:0xC0AA328C
++0x8020C59C:dword:0xEC630172
++0x8020C5A0:dword:0x4BE4E8D4
++0x8020C5A4:dword:0x7C295C2E
++0x8020C5A8:dword:0x3D408000
++0x8020C5AC:dword:0xC04A328C
++0x8020C5B0:dword:0xEC2100B2
++0x8020C5B4:dword:0x4BE62E40
++0x8020C5B8:dword:0x3C808000
++0x8020C5BC:dword:0xC024328C
++0x8020C5C0:dword:0xC05E0000
++0x8020C5C4:dword:0xEC420072
++0x8020C5C8:dword:0xD05E0000
++0x8020C5CC:dword:0xC05E0010
++0x8020C5D0:dword:0xEC420072
++0x8020C5D4:dword:0xD05E0010
++0x8020C5D8:dword:0x7FC4F378
++0x8020C5DC:dword:0x4BE63F94
++0x8020C5E0:dword:0x3CE08000
++0x8020C5E4:dword:0xC0673294
++0x8020C5E8:dword:0x4BEEC088
++0x8020C5EC:dword:0xFC801890
++0x8020C5F0:dword:0x3CE08000
++0x8020C5F4:dword:0xC0A7328C
++0x8020C5F8:dword:0xEC630172
++0x8020C5FC:dword:0x4BEEBB0C
++0x8020C600:dword:0xFC801890
++0x8020C604:dword:0x3CE08000
++0x8020C608:dword:0xC0A7328C
++0x8020C60C:dword:0xEC630172
++0x8020C610:dword:0x4BEEBBB0
++0x8020C614:dword:0xFC801890
++0x8020C618:dword:0x3CE08000
++0x8020C61C:dword:0xC0A7328C
++0x8020C620:dword:0xEC630172
++0x8020C624:dword:0x4BEEBC3C
++0x8020C628:dword:0xFC801890
++0x8020C62C:dword:0x3CE08000
++0x8020C630:dword:0xC0A7328C
++0x8020C634:dword:0xEC630172
++0x8020C638:dword:0x4BEEBD48
++0x8020C63C:dword:0xFC801890
++0x8020C640:dword:0x3CE08000
++0x8020C644:dword:0xC0A7328C
++0x8020C648:dword:0xEC630172
++0x8020C64C:dword:0x4BEEBDF8
++0x8020C650:dword:0xFC801890
++0x8020C654:dword:0x3CE08000
++0x8020C658:dword:0xC0A7328C
++0x8020C65C:dword:0xEC630172
++0x8020C660:dword:0x4BEEBE80
++0x8020C664:dword:0x3CE08000
++0x8020C668:dword:0xC0673294
++0x8020C66C:dword:0x4BEEC028
++0x8020C670:dword:0x3CE08000
++0x8020C674:dword:0xC187328C
++0x8020C678:dword:0xEC216024
++0x8020C67C:dword:0x7CDD3378
++0x8020C680:dword:0x4BF698B4
++0x8020C684:dword:0xFC801890
++0x8020C688:dword:0x3CE08000
++0x8020C68C:dword:0xC0A7328C
++0x8020C690:dword:0xEC630172
++0x8020C694:dword:0x4BEEC344
++0x8020C698:dword:0xFC801890
++0x8020C69C:dword:0x3CE08000
++0x8020C6A0:dword:0xC0A7328C
++0x8020C6A4:dword:0xEC630172
++0x8020C6A8:dword:0x4BF3B16C
++0x8020C6AC:dword:0xFC801890
++0x8020C6B0:dword:0x3CE08000
++0x8020C6B4:dword:0xC0A7328C
++0x8020C6B8:dword:0xEC630172
++0x8020C6BC:dword:0x4BF3B18C
++0x8020C6C0:dword:0xFC801890
++0x8020C6C4:dword:0x3CE08000
++0x8020C6C8:dword:0xC0A7328C
++0x8020C6CC:dword:0xEC630172
++0x8020C6D0:dword:0x4BE79474
++0x8020C6D4:dword:0xFC801890
++0x8020C6D8:dword:0x3CE08000
++0x8020C6DC:dword:0xC0A7328C
++0x8020C6E0:dword:0xEC630172
++0x8020C6E4:dword:0x4BE795C4
++0x8020C6E8:dword:0xFC801890
++0x8020C6EC:dword:0x3CE08000
++0x8020C6F0:dword:0xC0A7328C
++0x8020C6F4:dword:0xEC630172
++0x8020C6F8:dword:0x4BE795F0
++0x8020C6FC:dword:0xFC801890
++0x8020C700:dword:0x3CE08000
++0x8020C704:dword:0xC0A7328C
++0x8020C708:dword:0xEC630172
++0x8020C70C:dword:0x4BE7961C
++0x80211DE0:dword:0x43AA0000
++0x8021B06C:dword:0x0000FFF0
++0x8021B070:dword:0x01400110
++0x8021B07C:dword:0x0000FFF0
++0x8021B080:dword:0x00040110
++0x8021B08C:dword:0x00E4FFF0
++0x8021B090:dword:0x005C0110
++
++[OnFrame_Enabled]
++$16:9 Widescreen
+diff --git a/GXRuntime/include/core/cpu.h b/GXRuntime/include/core/cpu.h
+index 65f316f..2f13b3f 100644
+--- a/GXRuntime/include/core/cpu.h
++++ b/GXRuntime/include/core/cpu.h
+@@ -30,7 +30,7 @@ extern "C" {
+ //   consumes and resets it (Dolphin chassis: per-dispatch flush into
+ //   ppc_state.downcount). Hosts that do not meter guest time may ignore it
+ //   (s64: it cannot wrap in any realistic session).
+-#define GXRUNTIME_CPU_ABI_VERSION 3u
++#define GXRUNTIME_CPU_ABI_VERSION 4u
+ #define GXRUNTIME_CPU_ABI_DOLRECOMP_PREFIX 1u
+ #define GXRUNTIME_CPU_ABI_EXTERNAL_POINTER_EXTENSION 1u
+ 
+@@ -153,6 +153,10 @@ struct CPUState {
+     u32 ram_size;
+     PPCExternalPointer external_pointer;
+     s64 downcount;
++    /* ABI v4: cycle ceiling for a single recompiled dispatch. Present in
++       DolRecomp's cpu.h and ModernGekko's cpu_state.h; it was missing here,
++       so module_export.c stamped 3/3528 and every module was rejected. */
++    s64 cycle_budget;
+     u8* exram;
+     u32 exram_size;
+     PPCSPRRead spr_read;
+diff --git a/Source/Core/AudioCommon/AudioCommon.cpp b/Source/Core/AudioCommon/AudioCommon.cpp
+index 8ec653a..0abd680 100644
+--- a/Source/Core/AudioCommon/AudioCommon.cpp
++++ b/Source/Core/AudioCommon/AudioCommon.cpp
+@@ -176,6 +176,10 @@ void UpdateSoundStream(Core::System& system)
+     const int volume =
+         Config::Get(Config::MAIN_AUDIO_MUTED) ? 0 : Config::Get(Config::MAIN_AUDIO_VOLUME);
+     sound_stream->SetVolume(volume);
++    // Backends that do not implement SetVolume (ALSA, PulseAudio) still honour
++    // the master gain in the mixer.
++    if (Mixer* mixer = sound_stream->GetMixer())
++      mixer->SetMasterVolume(volume);
+   }
+ }
+ 
+diff --git a/Source/Core/AudioCommon/Mixer.cpp b/Source/Core/AudioCommon/Mixer.cpp
+index a57b602..2d6025a 100644
+--- a/Source/Core/AudioCommon/Mixer.cpp
++++ b/Source/Core/AudioCommon/Mixer.cpp
+@@ -179,6 +179,14 @@ std::size_t Mixer::Mix(s16* samples, std::size_t num_samples)
+   for (auto& mixer : m_gba_mixers)
+     mixer.Mix(samples, num_samples);
+ 
++  const int volume = m_master_volume.load(std::memory_order_relaxed);
++  if (volume != 100)
++  {
++    for (std::size_t i = 0; i < num_samples * 2; ++i)
++      samples[i] = static_cast<s16>(
++          std::clamp((static_cast<int>(samples[i]) * volume) / 100, -32768, 32767));
++  }
++
+   return num_samples;
+ }
+ 
+diff --git a/Source/Core/AudioCommon/Mixer.h b/Source/Core/AudioCommon/Mixer.h
+index aca334b..90177b1 100644
+--- a/Source/Core/AudioCommon/Mixer.h
++++ b/Source/Core/AudioCommon/Mixer.h
+@@ -45,6 +45,12 @@ public:
+   void SetStreamInputSampleRateDivisor(u32 rate_divisor);
+   void SetGBAInputSampleRate(std::size_t device_number, u32 sample_rate);
+ 
++  // Master volume, applied in Mix()/MixSurround(). SoundStream::SetVolume is
++  // an empty virtual that only Cubeb/OpenAL/OpenSLES override, so on an
++  // ALSA/PulseAudio build volume and mute otherwise do nothing at all.
++  // Applying the gain here works for every backend.
++  void SetMasterVolume(int volume) { m_master_volume.store(volume, std::memory_order_relaxed); }
++
+   void SetStreamingVolume(u32 lvolume, u32 rvolume);
+   void SetWiimoteSpeakerVolume(std::size_t wiimote_index, u32 lvolume, u32 rvolume);
+   std::size_t MixWiimoteSpeaker(std::size_t wiimote_index, s16* samples, std::size_t num_samples);
+@@ -184,6 +190,7 @@ private:
+       MixerFifo{this, GBA_SAMPLE_RATE_DIVIDEND / 65536, GBA_SAMPLE_RATE_DIVIDEND},
+       MixerFifo{this, GBA_SAMPLE_RATE_DIVIDEND / 65536, GBA_SAMPLE_RATE_DIVIDEND},
+   };
++  std::atomic<int> m_master_volume{100};
+   u32 m_output_sample_rate;
+ 
+   AudioCommon::SurroundDecoder m_surround_decoder;
+diff --git a/Source/Core/Core/CMakeLists.txt b/Source/Core/Core/CMakeLists.txt
+index f30654c..4e72343 100644
+--- a/Source/Core/Core/CMakeLists.txt
++++ b/Source/Core/Core/CMakeLists.txt
+@@ -298,6 +298,8 @@ add_library(core
+   HW/MemoryInterface.h
+   HW/MMIO.cpp
+   HW/MMIO.h
++  HW/PMW2Widescreen.cpp
++  HW/PMW2Widescreen.h
+   HW/ProcessorInterface.cpp
+   HW/ProcessorInterface.h
+   HW/SI/SI_Device.cpp
+diff --git a/Source/Core/Core/HW/PMW2Widescreen.cpp b/Source/Core/Core/HW/PMW2Widescreen.cpp
+new file mode 100644
+index 0000000..9636cf1
+--- /dev/null
++++ b/Source/Core/Core/HW/PMW2Widescreen.cpp
+@@ -0,0 +1,186 @@
++// See PMW2Widescreen.h for the design.
++#include "Core/HW/PMW2Widescreen.h"
++
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <set>
++
++#include <fmt/format.h>
++
++#include "Common/CommonTypes.h"
++#include "Common/Config/Config.h"
++#include "Common/Logging/Log.h"
++#include "Core/Config/ConfigManager.h"
++#include "Core/Config/GraphicsSettings.h"
++#include "Core/Config/MainSettings.h"
++#include "Core/HW/Memmap.h"
++#include "Core/System.h"
++#include "VideoCommon/OnScreenDisplay.h"
++#include "VideoCommon/OnScreenUI.h"
++#include "VideoCommon/VideoConfig.h"
++
++namespace PMW2WS
++{
++namespace
++{
++// First word of the widescreen code cave; present only in the patched DOL.
++constexpr u32 CAVE_MAGIC_ADDR = 0x8020C57C;
++constexpr u32 CAVE_MAGIC = 0xFC801890;  // fmr f4,f3
++
++// The main loop's per-state update-callback pointer (r13 - 0x7048).
++constexpr u32 STATE_PTR = 0x8050C418;
++
++// Update-callback values installed by the gameplay state chain.
++// FILLED_BY_ANALYSIS
++const std::set<u32> GAMEPLAY_FNS = {
++    0xDEADBEEF,  // placeholder
++};
++
++// Every toggleable data value of the patch: {addr, wide, neutral}.
++// The three parked constants come first; their neutral values make every cave
++// stub an identity operation (the multipliers become 1.0 and the replacement
++// constants revert to what the pristine instructions loaded).
++struct Row
++{
++  u32 addr, wide, neutral;
++};
++constexpr Row WS_TABLE[] = {
++    {0x8000328C, 0x3F40C0C1, 0x3F800000},  // master x-scale factor (neutral 1.0)
++    {0x80003290, 0x3D4CCCCD, 0x3D4CCCCD},  // preserved 0.05 copy - constant either way
++    {0x80003294, 0x3EC0C0C1, 0x3F2AAAAB},  // 0.5*factor; neutral = plain 0.5
++    {0x801CF680, 0x471A8000, 0x47100000},
++    {0x801D2BE0, 0x3E0F82B6, 0x3E26E979},
++    {0x801D2BF4, 0x3DCA35BB, 0x3DDD2F1B},
++    {0x801D3190, 0x3F4287A6, 0x3F400000},
++    {0x801D6E90, 0x3CAD7A47, 0x3CE66666},
++    {0x801D6E98, 0x3C21E998, 0x3C570A3E},
++    {0x801D6E9C, 0x3C6C1F53, 0x3C9CCCCD},
++    {0x801D6EA0, 0x3D06ED54, 0x3D333333},
++    {0x801D6EA4, 0x3F1A33CD, 0x3F4CCCCD},
++    {0x801D6EA8, 0x442A0000, 0x44000000},
++    {0x801D6F4C, 0x3CAD7A47, 0x3CE66666},
++    {0x801D6F64, 0x3CAD7A47, 0x3CE66666},
++    {0x801D6F8C, 0x3F109091, 0x3F400000},
++    {0x801D9814, 0x3DF92843, 0x3E14FDF4},
++    {0x801DBAB8, 0x3EF84A36, 0x3EF5C28F},
++    {0x801DBAC0, 0x3B76B949, 0x3BA3D70A},
++    {0x801DBAD4, 0x3EA1E998, 0x3ED70A3D},
++    {0x801DBCA0, 0x3CE74DB4, 0x3D19999A},
++    {0x801DBCA4, 0x3D1A33CD, 0x3D4CCCCD},
++    {0x801DBFA4, 0x3EC32990, 0x3EF5C28F},
++    {0x801DBFAC, 0x3EAFE316, 0x3EDC28F6},
++    {0x801DC008, 0x3D21E998, 0x3D570A3E},
++    {0x801DC020, 0x3CE74DB4, 0x3D19999A},
++    {0x801DC078, 0x3C390AF6, 0x3C75C28F},
++    {0x801DC090, 0x3EE200B9, 0x3F0F5C29},
++    {0x801DC130, 0x3EC32990, 0x3EF5C28F},
++    {0x801DF39C, 0x3CB2DFEE, 0x3CED9168},
++    {0x801DF3A8, 0x3CB90AF6, 0x3CF5C28F},
++    {0x801E1498, 0x40109091, 0x40400000},
++    {0x801E1AD4, 0x3E263FD9, 0x3E19999A},
++    {0x801E1AE0, 0x3EA1E998, 0x3ED70A3D},
++    {0x801E1AE4, 0x3EBA9BE4, 0x3EA3D70A},
++    {0x801E1AEC, 0x3CF6B949, 0x3D23D70A},
++    {0x801E1B1C, 0x3E97E9D5, 0x3E6B851F},
++    {0x801E1B20, 0x3EB2E619, 0x3E99999A},
++    {0x801E27F0, 0x3D1408C5, 0x3D449BA6},
++    {0x801E2848, 0x3E674DB4, 0x3E99999A},
++    {0x801E29E4, 0x3E9F9FA0, 0x3E800000},
++    {0x801E29EC, 0x3F303030, 0x3F400000},
++    {0x801E29F8, 0x3ED9730D, 0x3ECCCCCD},
++    {0x801E2A34, 0x3E2D7A47, 0x3E666666},
++    {0x801E2A48, 0x3E1A33CD, 0x3E4CCCCD},
++    {0x801EA138, 0x3ECDE25D, 0x3EBD70A4},
++    {0x801EA154, 0x3D0AC839, 0x3D3851EB},
++    {0x801F0524, 0x442A0000, 0x44000000},
++    {0x80211DE0, 0x43AA0000, 0x43800000},
++    {0x8021B06C, 0x0000FFF0, 0x00000000},
++    {0x8021B070, 0x01400110, 0x014000F0},
++    {0x8021B07C, 0x0000FFF0, 0x00000000},
++    {0x8021B080, 0x00040110, 0x000400F0},
++    {0x8021B08C, 0x00E4FFF0, 0x00E40000},
++    {0x8021B090, 0x005C0110, 0x005C00F0},
++};
++
++// ~1/4 second of consecutive fields before committing a switch, so brief
++// transitions through loader states do not flap the aspect.
++constexpr int HYSTERESIS_FIELDS = 15;
++
++void Apply(Memory::MemoryManager& memory, bool wide)
++{
++  for (const Row& r : WS_TABLE)
++    memory.Write_U32(wide ? r.wide : r.neutral, r.addr);
++  Config::SetCurrent(Config::GFX_ASPECT_RATIO,
++                     wide ? AspectMode::ForceWide : AspectMode::ForceStandard);
++}
++}  // namespace
++
++void OnField(Core::System& system)
++{
++
++  static int s_armed = 0;  // 0 probing, 1 armed, -1 permanently off
++  static bool s_wide = false;
++  static bool s_pending_wide = false;
++  static int s_pending_fields = 0;
++  static int s_probe_fields = 0;
++  static std::set<u32> s_seen;
++
++  if (s_armed < 0)
++    return;
++
++  auto& memory = system.GetMemory();
++  if (!memory.IsInitialized())
++    return;
++
++  if (s_armed == 0)
++  {
++    // Cheap one-read probe until the game has loaded far enough to decide.
++    if (SConfig::GetInstance().GetGameID().rfind("GP2E", 0) != 0 ||
++        ++s_probe_fields > 60 * 60 * 2)
++    {
++      s_armed = -1;
++      return;
++    }
++    if (memory.Read_U32(CAVE_MAGIC_ADDR) != CAVE_MAGIC)
++      return;
++    s_armed = 1;
++    s_wide = false;
++    Apply(memory, false);  // boot into correct 4:3 menus immediately
++    OSD::AddMessage("16:9 auto: on (wide in gameplay, 4:3 menus)", 5000);
++  }
++
++  const u32 state_fn = memory.Read_U32(STATE_PTR);
++  if (s_seen.insert(state_fn).second)
++  {
++    NOTICE_LOG_FMT(VIDEO, "PMW2WS: new state fn {:08x} ({})", state_fn,
++                   GAMEPLAY_FNS.count(state_fn) ? "wide" : "4:3");
++    // Bring-up aid: the NoGUI runtime does not route the log, so keep a plain
++    // file of every distinct state pointer seen (a handful per session).
++    if (FILE* f = std::fopen("userdata/pmw2ws_states.log", "a"))
++    {
++      std::fprintf(f, "%08x\n", state_fn);
++      std::fclose(f);
++    }
++    OSD::AddMessage(fmt::format("state {:08x}", state_fn), 2500);
++  }
++
++  const bool want_wide = GAMEPLAY_FNS.count(state_fn) != 0;
++  if (want_wide == s_wide)
++  {
++    s_pending_fields = 0;
++    return;
++  }
++  if (s_pending_wide != want_wide)
++  {
++    s_pending_wide = want_wide;
++    s_pending_fields = 0;
++  }
++  if (++s_pending_fields >= HYSTERESIS_FIELDS)
++  {
++    s_wide = want_wide;
++    s_pending_fields = 0;
++    Apply(memory, s_wide);
++  }
++}
++}  // namespace PMW2WS
+diff --git a/Source/Core/Core/HW/PMW2Widescreen.h b/Source/Core/Core/HW/PMW2Widescreen.h
+new file mode 100644
+index 0000000..0a47b24
+--- /dev/null
++++ b/Source/Core/Core/HW/PMW2Widescreen.h
+@@ -0,0 +1,24 @@
++// ModernGekko port feature: scene-aware native 16:9 for Pac-Man World 2.
++//
++// The widescreen DOL patch routes every projection/2D scale through constants
++// in guest RAM (0x8000328C/90/94 + 55 data values). This module rewrites those
++// constants at runtime depending on the current game scene, discovered through
++// the per-state update-callback pointer the main loop dispatches through:
++// gameplay gets true anamorphic 16:9 (presented ForceWide), front-end menus /
++// title / loading render their original 4:3 layout (presented ForceStandard).
++//
++// Arms itself only when the game is GP2E *and* the code cave from the patch is
++// present in memory; on a pristine DOL it stays inert.
++#pragma once
++
++namespace Core
++{
++class System;
++}
++
++namespace PMW2WS
++{
++// Called once per completed VI field from the CPU thread.
++void OnField(Core::System& system);
++
++}  // namespace PMW2WS
+diff --git a/Source/Core/Core/HW/VideoInterface.cpp b/Source/Core/Core/HW/VideoInterface.cpp
+index c3fdd35..16139a2 100644
+--- a/Source/Core/Core/HW/VideoInterface.cpp
++++ b/Source/Core/Core/HW/VideoInterface.cpp
+@@ -25,6 +25,7 @@
+ #include "Core/CoreTiming.h"
+ #include "Core/FifoPlayer/FifoPlayer.h"
+ #include "Core/HW/MMIO.h"
++#include "Core/HW/PMW2Widescreen.h"
+ #include "Core/HW/ProcessorInterface.h"
+ #include "Core/HW/SI/SI.h"
+ #include "Core/HW/SystemTimers.h"
+@@ -646,6 +647,15 @@ void VideoInterfaceManager::BeginField(FieldType field, u64 ticks)
+ 
+ void VideoInterfaceManager::EndField(FieldType field, u64 ticks)
+ {
++  // ModernGekko: PMW2WS::OnField is deliberately NOT called. Its scene table
++  // (GAMEPLAY_FNS) was never completed - it is still a placeholder - so once
++  // armed it can only ever decide "not gameplay" and write the neutral table
++  // plus ForceStandard every field. With the runtime Gecko widescreen codes
++  // active that fights them constantly: the picture comes out squeezed, the
++  // title logo vanishes and the frame rate drops. Its arming probe is also
++  // unsafe here, matching on FC801890 at 0x8020C57C, which is zero in the
++  // pristine DOL but occurs throughout the Gecko code list once that is copied
++  // into guest RAM.
+   // If the game does change VI registers while a frame is scanning out, we can defer output
+   // until the end so the last register values are used. This still isn't accurate, but it does
+   // produce more acceptable results in some problematic cases.
 diff --git a/Source/Core/DolphinNoGUI/PlatformX11.cpp b/Source/Core/DolphinNoGUI/PlatformX11.cpp
 index 8d0ae0c..b4b6798 100644
 --- a/Source/Core/DolphinNoGUI/PlatformX11.cpp
@@ -188,10 +738,10 @@ index 8d0ae0c..b4b6798 100644
    KeySym key;
    for (int num_events = XPending(m_display); num_events > 0; num_events--)
 diff --git a/Source/Core/VideoCommon/OnScreenUI.cpp b/Source/Core/VideoCommon/OnScreenUI.cpp
-index 451109b..daa83ea 100644
+index 451109b..63f064d 100644
 --- a/Source/Core/VideoCommon/OnScreenUI.cpp
 +++ b/Source/Core/VideoCommon/OnScreenUI.cpp
-@@ -10,12 +10,29 @@
+@@ -10,12 +10,37 @@
  #include "Common/Timer.h"
  
  #include "Core/Achievements/AchievementManager.h"
@@ -201,7 +751,15 @@ index 451109b..daa83ea 100644
 +#include "Core/HW/ProcessorInterface.h"
  #include "Core/Config/GraphicsSettings.h"
 +#include "Core/Config/CheatSettings.h"
++#include "Core/Cheats/GeckoCode.h"
++#include "Core/Cheats/GeckoCodeConfig.h"
++#include "Common/IniFile.h"
++#include "Common/StringUtil.h"
++#include <sstream>
++#include <fstream>
 +#include "Core/Config/ConfigManager.h"
++#include "Core/HW/PMW2Widescreen.h"
++#include <cstring>
 +#include <string>
  #include "Core/Config/MainSettings.h"
  #include "Core/Config/NetplaySettings.h"
@@ -221,7 +779,7 @@ index 451109b..daa83ea 100644
  
  #include "VideoCommon/AbstractGfx.h"
  #include "VideoCommon/AbstractPipeline.h"
-@@ -413,6 +430,471 @@ void OnScreenUI::DrawChallengesAndLeaderboards()
+@@ -413,6 +438,643 @@ void OnScreenUI::DrawChallengesAndLeaderboards()
  #endif  // USE_RETRO_ACHIEVEMENTS
  }
  
@@ -234,6 +792,139 @@ index 451109b..daa83ea 100644
 +
 +namespace
 +{
++// ---- 16:9 ------------------------------------------------------------------
++// This game has no widescreen support of its own. The DOL was searched and
++// contains no 16:9 constant anywhere: 680.0 (the wide layout width), 0.752941
++// (the widescreen scale), 1.777778 (16/9) and 0.5625 (9/16) all appear ZERO
++// times, and the only aspect-related string in the binary is "dontLetterBox",
++// a cinematic camera parameter. So 16:9 comes from the Dolphin-wiki Gecko codes
++// for GP2EAF, which widen the game's OWN 2D layout space from 512 units to 680
++// (x85/64) and scale ~25 size constants by the reciprocal, so the HUD reaches
++// the edges of the frame instead of sitting in a 4:3 island.
++//
++// Those codes are re-applied every frame from the VI interrupt
++// (PatchEngine::ApplyFramePatches -> Gecko::RunCodeHandler), but 13 of them
++// patch instructions rather than data, and under static recompilation the
++// affected chunks have already fallen back to the interpreter. Un-patching that
++// mid-session is not safe, so a change here is applied on reset.
++constexpr char WIDESCREEN_CODE_NAME[] = "16:9 Widescreen";
++
++bool ReadWidescreenEnabled()
++{
++  const auto& sconfig = SConfig::GetInstance();
++  const Common::IniFile global_ini = sconfig.LoadDefaultGameIni();
++  const Common::IniFile local_ini = sconfig.LoadLocalGameIni();
++  for (const Gecko::GeckoCode& code : Gecko::LoadCodes(global_ini, local_ini))
++  {
++    if (code.name == WIDESCREEN_CODE_NAME)
++      return code.enabled;
++  }
++  return false;
++}
++
++// Read once per session, not per frame - the checkbox is drawn every frame the
++// menu is open and this touches the filesystem.
++bool& WidescreenFlag()
++{
++  static bool enabled = ReadWidescreenEnabled();
++  return enabled;
++}
++
++bool s_widescreen_reset_pending = false;
++
++// Common::IniFile::Save drops everything above the first section, and
++// Gecko::SaveCodes rewrites the code sections wholesale. This file's
++// documentation lives in a comment block at the top, so capture it and put it
++// back, or a toggle silently destroys it.
++std::string ReadLeadingComments(const std::string& path)
++{
++  std::ifstream in(path);
++  if (!in)
++    return {};
++  std::string line, header;
++  while (std::getline(in, line))
++  {
++    const std::string_view trimmed = StripWhitespace(line);
++    if (!trimmed.empty() && trimmed[0] != '#')
++      break;
++    header += line;
++    header += '\n';
++  }
++  return header;
++}
++
++void RestoreLeadingComments(const std::string& path, const std::string& header)
++{
++  if (header.empty())
++    return;
++  std::string body;
++  {
++    std::ifstream in(path);
++    if (!in)
++      return;
++    std::ostringstream ss;
++    ss << in.rdbuf();
++    body = ss.str();
++  }
++  // Only prepend if the save really dropped it, so repeated toggles cannot
++  // stack duplicate copies.
++  if (body.compare(0, header.size(), header) == 0)
++    return;
++  std::ofstream out(path, std::ios::trunc);
++  if (!out)
++    return;
++  out << header << body;
++}
++
++// Enables or disables the widescreen Gecko code in GameSettings/<id>.ini - the
++// same file and section Dolphin's own Gecko UI writes. Returns false if the
++// code is not present at all, so the checkbox can hide rather than lie.
++bool WriteWidescreenEnabled(bool on)
++{
++  const auto& sconfig = SConfig::GetInstance();
++  const Common::IniFile global_ini = sconfig.LoadDefaultGameIni();
++  Common::IniFile local_ini = sconfig.LoadLocalGameIni();
++
++  std::vector<Gecko::GeckoCode> codes = Gecko::LoadCodes(global_ini, local_ini);
++  bool found = false;
++  for (Gecko::GeckoCode& code : codes)
++  {
++    if (code.name != WIDESCREEN_CODE_NAME)
++      continue;
++    code.enabled = on;
++    found = true;
++  }
++  if (!found)
++    return false;
++
++  const std::string path =
++      File::GetUserPath(D_GAMESETTINGS_IDX) + SConfig::GetInstance().GetGameID() + ".ini";
++  const std::string header = ReadLeadingComments(path);
++
++  Gecko::SaveCodes(local_ini, codes);
++  if (!local_ini.Save(path))
++    return false;
++  RestoreLeadingComments(path, header);
++
++  // The codes are inert unless the cheat engine is running at all.
++  if (on)
++    Config::SetBaseOrCurrent(Config::MAIN_ENABLE_CHEATS, true);
++  return true;
++}
++
++bool WidescreenCodeAvailable()
++{
++  const auto& sconfig = SConfig::GetInstance();
++  const Common::IniFile global_ini = sconfig.LoadDefaultGameIni();
++  const Common::IniFile local_ini = sconfig.LoadLocalGameIni();
++  for (const Gecko::GeckoCode& code : Gecko::LoadCodes(global_ini, local_ini))
++  {
++    if (code.name == WIDESCREEN_CODE_NAME)
++      return true;
++  }
++  return false;
++}
++
 +// ModernGekko in-game settings menu. Emulation deliberately keeps running:
 +// pausing stops the video thread, and the video thread is what draws this.
 +
@@ -524,18 +1215,57 @@ index 451109b..daa83ea 100644
 +        Config::SetBaseOrCurrent(Config::GFX_EFB_SCALE, scale);
 +    }
 +
-+    // Pac-Man World 2 is a 4:3 game. Rendering it "correctly" at 16:9 needs
-+    // both halves: the hack widens the projection matrix so geometry is drawn
-+    // with a wider field of view instead of being stretched, and the aspect
-+    // mode makes the output 16:9. Either one alone looks wrong.
-+    bool wide_hack = Config::Get(Config::GFX_WIDESCREEN_HACK);
-+    if (ImGui::Checkbox("16:9 widescreen hack", &wide_hack))
++    // No widescreen-hack checkbox here on purpose. This port renders 16:9
++    // NATIVELY - the game lays out its own projection, HUD and 2D for a wide
++    // screen via the Gecko codes in GameSettings/GP2EAF.ini. Turning Dolphin's
++    // hack on as well would widen an already-wide image and double-correct it.
++    // The aspect combo stays, so 4:3 is still reachable.
++    // Only offer this if the code is actually present in this install's
++    // GameSettings, so the checkbox can never claim to do something it cannot.
++    // Native 16:9 toggle. On: the GAME renders wide (Gecko values) and the
++    // presentation is forced to 16:9 to un-squeeze it. Off: pristine neutrals,
++    // a true 4:3 with black bars.
++    static const bool ws_available = WidescreenCodeAvailable();
++    if (ws_available)
 +    {
-+      Config::SetBaseOrCurrent(Config::GFX_WIDESCREEN_HACK, wide_hack);
-+      // Pair it with a 16:9 output, otherwise the wider FOV is squeezed back
-+      // into a 4:3 frame and everything looks thin.
-+      Config::SetBaseOrCurrent(Config::GFX_ASPECT_RATIO,
-+                               wide_hack ? AspectMode::ForceWide : AspectMode::Auto);
++      bool wide = WidescreenFlag();
++      if (ImGui::Checkbox("Native 16:9 widescreen", &wide))
++      {
++        if (WriteWidescreenEnabled(wide))
++        {
++          WidescreenFlag() = wide;
++          s_widescreen_reset_pending = true;
++          // NOTE: the aspect is deliberately NOT changed here. The code patches
++          // only take effect on the reset below, so changing the presentation
++          // now would leave the two disagreeing until then - a wide render shown
++          // in a 4:3 frame looks squeezed, and a 4:3 render shown wide looks
++          // stretched. Both move together, on the reset.
++        }
++      }
++      if (s_widescreen_reset_pending)
++      {
++        ImGui::TextColored(ImVec4(1.00f, 0.82f, 0.16f, 1.00f), "Reset to apply");
++        ImGui::SameLine();
++        if (ImGui::Button("Reset now"))
++        {
++          s_widescreen_reset_pending = false;
++          // Aspect flips at the same instant the guest reboots and picks up the
++          // new code state, so render and presentation never disagree.
++          // ON: the guest renders anamorphic 16:9 and the presentation has to
++          // stretch it back out. OFF: a genuine 4:3 render, presented 4:3.
++          Config::SetBaseOrCurrent(Config::GFX_ASPECT_RATIO,
++                                   WidescreenFlag() ? AspectMode::ForceWide
++                                                    : AspectMode::ForceStandard);
++          g_ingame_menu_open.store(false, std::memory_order_relaxed);
++          system.GetProcessorInterface().ResetButton_Tap();
++        }
++      }
++      if (ImGui::IsItemHovered())
++      {
++        ImGui::SetTooltip("On: the GAME renders 16:9 natively.\n"
++                          "Off: true 4:3 with black bars.\n"
++                          "Applies immediately.");
++      }
 +    }
 +
 +    int aspect = static_cast<int>(Config::Get(Config::GFX_ASPECT_RATIO));
@@ -693,7 +1423,7 @@ index 451109b..daa83ea 100644
  void OnScreenUI::Finalize()
  {
    auto lock = GetImGuiLock();
-@@ -422,6 +904,7 @@ void OnScreenUI::Finalize()
+@@ -422,6 +1084,7 @@ void OnScreenUI::Finalize()
    DrawDebugText();
    OSD::DrawMessages();
    DrawChallengesAndLeaderboards();
@@ -702,7 +1432,7 @@ index 451109b..daa83ea 100644
  
    // Check for font changes
 diff --git a/Source/Core/VideoCommon/OnScreenUI.h b/Source/Core/VideoCommon/OnScreenUI.h
-index e9a14e0..68d7d7d 100644
+index e9a14e0..1388409 100644
 --- a/Source/Core/VideoCommon/OnScreenUI.h
 +++ b/Source/Core/VideoCommon/OnScreenUI.h
 @@ -3,6 +3,7 @@
@@ -713,7 +1443,7 @@ index e9a14e0..68d7d7d 100644
  #include <map>
  #include <memory>
  #include <mutex>
-@@ -19,6 +20,17 @@ struct ImTextureData;
+@@ -19,6 +20,21 @@ struct ImTextureData;
  
  namespace VideoCommon
  {
@@ -728,6 +1458,136 @@ index e9a14e0..68d7d7d 100644
 +// but leaves the platform's MainLoop running, so the window would linger.
 +extern std::atomic<bool> g_ingame_exit_request;
 +
++// High-refresh tuning, live-adjustable from the menu and consumed per VI field
++// by Core/HW/PMW2Widescreen.cpp. Stored as bit patterns of floats so they stay
++// lock-free. mult 1.0 / step 0.0 means "leave the game alone".
++
  // OnScreenUI handles all the ImGui rendering.
  class OnScreenUI
  {
+diff --git a/Source/Core/VideoCommon/Present.cpp b/Source/Core/VideoCommon/Present.cpp
+index 7c62730..f8d9ac1 100644
+--- a/Source/Core/VideoCommon/Present.cpp
++++ b/Source/Core/VideoCommon/Present.cpp
+@@ -3,6 +3,12 @@
+ 
+ #include "VideoCommon/Present.h"
+ 
++#include <algorithm>
++#include <cstdlib>
++#include <cstring>
++#include <thread>
++#include <chrono>
++
+ #include "Common/ChunkFile.h"
+ #include "Core/Config/GraphicsSettings.h"
+ #include "Core/Config/MainSettings.h"
+@@ -18,6 +24,7 @@
+ #include "VideoCommon/FrameDumper.h"
+ #include "VideoCommon/FramebufferManager.h"
+ #include "VideoCommon/OnScreenUI.h"
++#include "VideoCommon/PerformanceMetrics.h"
+ #include "VideoCommon/PostProcessing.h"
+ #include "VideoCommon/VertexManagerBase.h"
+ #include "VideoCommon/VideoConfig.h"
+diff --git a/Source/Core/VideoCommon/VertexManagerBase.cpp b/Source/Core/VideoCommon/VertexManagerBase.cpp
+index 2bc6d58..a8a4092 100644
+--- a/Source/Core/VideoCommon/VertexManagerBase.cpp
++++ b/Source/Core/VideoCommon/VertexManagerBase.cpp
+@@ -3,8 +3,16 @@
+ 
+ #include "VideoCommon/VertexManagerBase.h"
+ 
++#include "VideoCommon/OnScreenUI.h"
++
++#include <cstdlib>
++#include <cstring>
++
+ #include <array>
++#include <algorithm>
+ #include <cmath>
++#include <limits>
++#include <unordered_map>
+ #include <memory>
+ 
+ #include "Common/ChunkFile.h"
+@@ -44,6 +52,7 @@
+ #include "VideoCommon/XFMemory.h"
+ #include "VideoCommon/XFStateManager.h"
+ 
++
+ std::unique_ptr<VertexManagerBase> g_vertex_manager;
+ 
+ using OpcodeDecoder::Primitive;
+@@ -641,7 +650,6 @@ void VertexManagerBase::Flush()
+     // Palette application does not use vertices, only a full-screen quad, so this is okay.
+     // Same with GPU texture decoding, which uses compute shaders.
+     g_texture_cache->BindTextures(used_textures, samplers);
+-
+     if (!skip)
+     {
+       UpdatePipelineConfig();
+@@ -1069,6 +1077,7 @@ void VertexManagerBase::RenderDrawCall(
+     pixel_shader_manager.custom_constants_dirty = true;
+   }
+   pixel_shader_manager.custom_constants = custom_pixel_shader_uniforms;
++
+   UploadUniforms();
+ 
+   g_gfx->SetPipeline(current_pipeline);
+diff --git a/Source/Core/VideoCommon/VertexManagerBase.h b/Source/Core/VideoCommon/VertexManagerBase.h
+index 715dbee..30e6b4b 100644
+--- a/Source/Core/VideoCommon/VertexManagerBase.h
++++ b/Source/Core/VideoCommon/VertexManagerBase.h
+@@ -4,6 +4,7 @@
+ #pragma once
+ 
+ #include <memory>
++#include <unordered_map>
+ #include <vector>
+ 
+ #include "Common/BitSet.h"
+@@ -11,7 +12,10 @@
+ #include "Common/MathUtil.h"
+ #include "VideoCommon/CPUCull.h"
+ #include "VideoCommon/IndexGenerator.h"
++#include "VideoCommon/AbstractGfx.h"
++#include "VideoCommon/BPMemory.h"
+ #include "VideoCommon/RenderState.h"
++#include "VideoCommon/TextureCacheBase.h"
+ #include "VideoCommon/ShaderCache.h"
+ #include "VideoCommon/VideoEvents.h"
+ 
+@@ -223,11 +227,18 @@ private:
+   // Minimum number of draws per command buffer when attempting to preempt a readback operation.
+   static constexpr u32 MINIMUM_DRAW_CALLS_PER_COMMAND_BUFFER_FOR_READBACK = 10;
+ 
++protected:
++
++
+   void RenderDrawCall(PixelShaderManager& pixel_shader_manager,
+                       GeometryShaderManager& geometry_shader_manager,
+                       const CustomPixelShaderContents& custom_pixel_shader_contents,
+                       std::span<u8> custom_pixel_shader_uniforms, PrimitiveType primitive_type,
+                       const AbstractPipeline* current_pipeline);
++  // True when the current 2D batch already spans the full width of the
++  // screen - a fade, wipe, letterbox bar or FMV blit. Those must not be
++  // narrowed by the 16:9 2D correction or the scene shows through at the
++  // left and right edges.
+   void UpdatePipelineConfig();
+   void UpdatePipelineObject();
+ 
+diff --git a/Source/Core/VideoCommon/VertexShaderManager.cpp b/Source/Core/VideoCommon/VertexShaderManager.cpp
+index 6d69803..06a9a97 100644
+--- a/Source/Core/VideoCommon/VertexShaderManager.cpp
++++ b/Source/Core/VideoCommon/VertexShaderManager.cpp
+@@ -76,6 +76,9 @@ Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
+ 
+   case ProjectionType::Orthographic:
+   {
++    // NOTE: the 16:9 correction for 2D is applied per draw in
++    // VertexManagerBase::RenderDrawCall, not here - it depends on whether the
++    // individual batch spans the whole screen. See Is2DBatchFullScreen().
+     m_projection_matrix[0] = rawProjection[0];
+     m_projection_matrix[1] = 0.0f;
+     m_projection_matrix[2] = 0.0f;

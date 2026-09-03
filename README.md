@@ -36,6 +36,53 @@ Tooling and patches for building a **native Linux port of Pac-Man World 2**
 Patches 01, 03 and 05 are upstream bugs rather than port-specific hacks.
 Write-ups suitable for filing are in `docs/upstream-issues/`.
 
+### Native 16:9
+
+The port renders 16:9 natively: the **game** lays out its own projection, HUD
+and 2D for a wide screen. It is not Dolphin's widescreen hack, and not a
+stretched 4:3 image.
+
+It is a **live** toggle in the in-game settings menu ("16:9 widescreen") - it
+applies immediately, with no reset.
+
+That works because none of the 13 code hooks ever has to be un-patched. Every
+one of them reads its scale from one of two scratch words in guest RAM
+(`0x8000328C`, `0x80003294`), so writing pristine neutral values there turns each
+hook into an exact identity operation with its branch left permanently in place.
+Toggling is then just 55 word writes, done on the CPU thread immediately after
+the Gecko handler runs - ordering matters, because the handler rewrites those
+same constants every field and would otherwise undo the neutrals before the
+guest read them.
+
+52 of the 55 neutral values were checked byte-for-byte against the pristine
+`main.dol`. The other three are scratch words that are zero padding in the
+pristine image. One of those, `0x80003294`, could not be read statically at all -
+its hook replaces a load through a runtime object pointer - and an inferred
+value of 0.5 turned out to be **wrong**: pristine 4:3 draws the Pac-Man life
+icon 64x64, and 0.5 produced 48x64, exactly 3/4 too narrow. The real value is
+2/3, confirmed by measuring the icon against a codes-disabled reference run.
+
+Under the hood this enables the Dolphin-wiki `$16:9 Widescreen` Gecko codes for
+`GP2EAF` at runtime (`EnableCheats = True`, codes in
+`userdata/GameSettings/GP2EAF.ini`), with `wideScreenHack = False` — the two
+together would double-correct. Decoded against the DOL, those codes scale three
+layout extents by 85/64 (`512 -> 680`, `256 -> 340`; the game lays out 2D in a
+512-unit-wide space) and about 25 normalized size constants by the exact
+reciprocal 64/85, plus 13 code hooks.
+
+Two things worth knowing if you fork this:
+
+- **Do not bake the codes into `main.dol`.** That was tried, with code caves for
+  the `C2` payloads, and it broke the game in play including the title screen.
+  Applied at runtime instead, the affected chunks fall back to the interpreter,
+  which is correct and costs nothing measurable — 59.9 FPS steady.
+- **A renderer-side 2D correction cannot work for this game**, and one was built
+  and removed before this was understood. The game submits 2D one glyph per draw
+  call, so with a 1.333 display stretch: correct glyph shape needs size scaled by
+  0.75, correct letter spacing needs position scaled by the same 0.75, and
+  filling the width needs position scaled by 1. The last two contradict. Details
+  in `patches/README.md`.
+
 ---
 
 ## You need your own copy of the game

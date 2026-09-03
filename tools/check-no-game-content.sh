@@ -36,6 +36,13 @@ done <<< "$staged"
 # 3. Content signatures, so a renamed file is still caught.
 while IFS= read -r f; do
   [ -f "$f" ] || continue
+  # The checks below look for BINARY headers. Skip text files, or a patch or
+  # doc that merely names GameSettings/GP2EAF.ini in its first line trips the
+  # game-ID check - that ID is meant to catch a raw DOL/ISO header, not a
+  # filename in a unified diff.
+  case "$(file -b --mime-type "$f" 2>/dev/null)" in
+    text/*|inode/x-empty|application/json) continue ;;
+  esac
   head -c 64 "$f" 2>/dev/null | grep -qa "GP2E"   && { say "Contains GameCube game ID 'GP2E': $f"; fail=1; }
   head -c 8  "$f" 2>/dev/null | grep -qa $'\xc2\x33\x9f\x3d' && { say "GameCube disc magic: $f"; fail=1; }
   # A DOL has its text section offsets in the first 0x100 bytes and no ELF magic.

@@ -137,83 +137,69 @@ Measured on the sink monitor with `parec`, 3 s windows:
 This is an upstream Dolphin bug, independent of the menu, and worth reporting
 on its own.
 
-## Option 3 (native 16:9) — WORKING
+## 16:9 — native, via the wiki Gecko codes applied at runtime
 
-`patches/06-widescreen-dol-manifest.md` documents the final form. The whole
-16:9 code from the Dolphin wiki is baked into `main.dol` before recompilation,
-so it runs as native code with **zero interpreter fallback and zero SMC
-events**. The HUD renders correctly: the Pac-Man life icon is a circle, where
-both Dolphin's widescreen hack and the data-only patch left it an ellipse.
+The port renders 16:9 natively: the GAME lays out its projection, HUD and 2D for
+a wide screen, rather than the emulator stretching a 4:3 image.
 
-The manifest lives at
-`build/ModernGekko/vendor/dolphin/Data/Sys/GameSettings/GP2EAF.ini`
-and has three kinds of entry:
+**What the codes actually do**, decoded against the DOL rather than taken on
+faith. Parsing the DOL section table and reading each patch address gives a
+coherent scheme built on one ratio and its exact reciprocal:
 
-| | count | |
+| what | factor | examples |
 |---|---|---|
-| data/constant writes | 58 | the `04`/`02` lines, `02` merged into their dword |
-| code-cave words | 66 | at `0x8020C57C`, 264 bytes |
-| `b <cave>` hooks | 16 | 13 from the wiki code + 3 added |
+| 3 layout extents | 85/64 = 1.328125 | 512 -> 680, 512 -> 680, 256 -> 340 |
+| ~25 normalized sizes | 64/85 = 0.752941 | 0.8 -> 0.602, 0.42 -> 0.316 |
+| 13 `C2` hooks | 0.752941 | multiply a computed value, constant at 0x8000328C |
 
-**The C2 hooks needed code caves.** A Gecko `C2` replaces the instruction at
-the address and the payload re-includes it — confirmed by observing that 9 of
-the 13 payloads begin with a byte-identical copy of the instruction they
-replace. Each hook therefore becomes: `b cave` at the site, and a cave holding
-`payload… ; b hook+4`.
+The game lays out 2D in a **512-unit-wide space**; 680 is that space at 16:9.
+Widening it is what lets the HUD reach the edges of the frame. The size
+constants take the reciprocal so elements do not grow as the space widens.
 
-### Full audit of the 2D hook sites
+**Why data-only was never going to work.** One `C2` replaces
+`lfs f3, 0x1ACC(r29)` - a load through a *runtime pointer*, with no fixed
+address a data write could target. That is exactly why the earlier data-only
+attempt left the Pac-Man life icon an ellipse.
 
-All 34 `fmr f4,f3` instructions in the binary were enumerated and grouped by
-the draw function the following `bl` reaches:
+**Why this works where baking into the DOL did not.** The `C2` codes are applied
+at runtime by the Gecko engine. Under static recompilation the affected chunks
+fail their hash check and fall back to the interpreter - which is correct, and
+measured free: 59.9 FPS on all 30 samples across 60 s. Baking the same patches
+into `main.dol` with code caves was tried instead and broke the game in play,
+including the title screen. `Game/sys/main.dol` stays pristine.
 
-| call target | sites | hooked by wiki | added here | status |
-|---|---|---|---|---|
-| `0x8007095C` | 6 | 6 | 0 | complete |
-| `0x80070934` | 9 | 2 | **7** | complete |
-| `0x80071820` | 5 | 0 | 0 | different fn, left alone |
-| `0x80071844` | 2 | 0 | 0 | different fn, left alone |
-| 8 other targets | 12 | 0 | 0 | unrelated subsystems |
+Config: `EnableCheats = True`, `$16:9 Widescreen` in `[Gecko_Enabled]`,
+`wideScreenHack = False`, `AspectRatio = Auto`. The hack must be OFF - the game
+is doing the widening itself and both together double-correct. Auto is right
+rather than Force 16:9: Dolphin's widescreen heuristic detects the game is now
+genuinely anamorphic, and still handles any 4:3 content correctly.
 
-The wiki code hooks **both** draw functions but covers `0x80070934`
-incompletely -- 2 of its 9 call sites. The 7 missing ones are
-`0x800F89D4`, `0x80147810`, `0x80147844`, `0x80085B40`, `0x80085CA4`,
-`0x80085CE4`, `0x80085D24`; leaving them out is what kept the front-end menu
-and other 2D elements stretched.
+Verified: title screen correct (the case that broke every previous attempt),
+in-level HUD reaching the edges, life icon measured a circle, 59.9 FPS steady.
 
-Each added site was checked before hooking: the instruction is byte-identical
-to the ones the wiki hooks, the surrounding code has the same argument-setup
-shape (`lwz r4,<sda>` / `fmr f4,f3` / `addi r5,r0,818x` / `addi r6,r0,1`), and
-`r7` -- the scratch register the payload uses -- is dead at each, since a call
-follows within a few instructions and `r7` is caller-saved.
+### Why there is no renderer-side 2D correction (and no widescreen-hack checkbox)
 
-The other 19 sites were deliberately **not** hooked. `fmr f4,f3` is a generic
-instruction; hooking every occurrence would scale floats in unrelated code.
-Two of them (`0x8012FD04`, `0x8013F520`) additionally have `r7` live.
+A renderer-side version was built and then removed, because it cannot work for
+this game and the checkbox for it was an active trap: with the game already
+rendering wide, enabling Dolphin's widescreen hack widens an already-wide image
+and double-corrects it. Both checkboxes are gone from the menu; the aspect combo
+stays, so 4:3 is still reachable.
 
-**The wiki code misses the front-end menu.** Its six 2D hooks all sit at call
-sites that reach `0x8007095C`. Three other sites -- `0x800F89D4`,
-`0x80147810`, `0x80147844` -- reach `0x80070934`, a sibling entry point 0x28
-away, and the author covered one path and not the other. That is why the
-in-game HUD came out correct while the title-screen menu stayed stretched.
-Hooking those three with the same payload fixes the menu. `r7` (the scratch
-register the payload uses) is unwritten near all three, matching the profile of
-the sites the wiki code already hooks safely.
+The reason it cannot work is worth recording. This game submits 2D **one glyph
+per draw call** - 12 vertices, ~0.07 clip-space span, measured by instrumenting
+the batch walk. With `s` the scale applied to glyph size, `p` the scale applied
+to glyph position, and a 1.333 display stretch:
 
-**Use `b`, never `bl`.** The first attempt shared caves between hooks with the
-same payload by branching with `bl` and returning with `blr`, which fit all 13
-into 132 bytes. It also clobbers LR at sites where the compiler still needs it,
-and the game died after ~26 s of guest time. An A/B against the data-only build
-confirmed the caves were the cause. Plain `b` with a per-hook return branch
-never touches LR; it costs 264 bytes instead of 132 and is stable.
+* correct glyph shape needs `s = 0.75`
+* correct letter spacing needs `p = s`
+* filling the 16:9 width needs `p = 1`
 
-**The runtime must boot the patched DOL.** The module is compiled from
-`patched-main.dol`, so `Game/sys/main.dol` has to be that same file or the
-chunk hashes disagree and the guard drops those chunks to the interpreter —
-47 SMC events, and the patches have no effect because guest memory is
-unpatched. With the patched DOL installed: 0 events.
-
-Config: `EnableCheats = False` (nothing at runtime), `AspectRatio = 1`,
-`wideScreenHack = False`.
+`p` cannot be both 0.75 and 1. Anchoring the scale on the screen centre buys
+correct text at the cost of a 12.5% dead band on each side; anchoring on each
+batch's own centre fills the screen but spaces letters 33% too far apart. Both
+were built and both were rejected on sight. Only the game changing its own
+layout escapes the contradiction - which is exactly what the Gecko codes do by
+widening the 2D layout space from 512 units to 680.
 
 ## Bundle fix found along the way
 
