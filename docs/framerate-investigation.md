@@ -619,3 +619,47 @@ the design record).
 
 Shipped state: 60 FPS default (untouched, verified), 120 FPS as an explicitly
 experimental menu option with the quality above.
+
+---
+
+# Transform interpolation: closed. Root cause of the failure to converge.
+
+Twelve rounds of fixes. Each found a real bug; none produced a usable feature.
+The decisive experiment came last and should have come first:
+
+**Forcing draw_t = 1.0** (replay every draw at its exact current pose, zero
+interpolation) STILL produced shattered geometry. That proved the corruption
+was in the capture/replay data path, not the interpolation - which means the
+pairing, occurrence-ordering, rotation-guard and frame-skip work of the
+preceding rounds was addressing a non-problem.
+
+## The one genuinely proven bug (worth keeping)
+
+Vertex data was captured AFTER `CommitBuffer`. On Vulkan `CommitMemory`
+advances the stream-buffer ring, so reading the mapped region afterwards
+returns recycled bytes. Capturing before the commit fixed the shard corruption
+outright (verified: correct Pac-Man, logo, menu text, water at 114 FPS).
+
+## Why it still did not work
+
+With that fixed, background terrain was missing and artifacts remained, and
+throughput had degraded 119 -> 93 FPS as capture costs accumulated. Each
+remaining artifact is another slice of per-draw GPU state not being reproduced
+(TEV/indirect state, vertex format details, blend/depth config beyond the
+pipeline object, ...). There is no reason to expect the list to terminate: a
+faithful replay needs the COMPLETE command stream, which is precisely what
+`FifoRecorder` captures and what a piecewise reconstruction cannot.
+
+## Method note
+
+The isolation test (force t=1; if still broken the bug is in the data path,
+not the math) is the single most valuable diagnostic here and takes one build.
+Use it FIRST next time.
+
+## Disposition
+
+120 FPS option removed from the menu; capture permanently disabled; the
+recorder/replayer code retained for reference. Port ships at native 60.
+The upstream case (docs/upstream-issues/04) now carries: a working
+capture/replay/present/pacing prototype, the complete list of per-draw state
+that must be reproduced, this bug ledger, and the CommitBuffer ordering trap.
