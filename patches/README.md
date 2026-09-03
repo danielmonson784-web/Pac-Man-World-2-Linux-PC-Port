@@ -137,6 +137,38 @@ Measured on the sink monitor with `parec`, 3 s windows:
 This is an upstream Dolphin bug, independent of the menu, and worth reporting
 on its own.
 
+## 06-portable-moderngekko-port.patch  (a shipped moderngekko-port that works)
+
+`moderngekko-port` resolved its source root from `MODERNGEKKO_SOURCE_DIR`, an
+absolute path baked in at compile time. Two consequences, both bad for a
+redistributable build: the binary is unusable on any machine but the builder's,
+and the builder's home directory ends up in its strings.
+
+`ResolveSourceRoot()` now prefers, in order: `$MODERNGEKKO_SOURCE_DIR` if it
+points at a real tree; then `runtime/`, `.` or `..` beside the executable, which
+is how a bundle is laid out; then the compiled-in path, so in-tree usage is
+unchanged. The compiled-in value is overridable, which is what a release build
+wants:
+
+    cmake -DMODERNGEKKO_EMBED_SOURCE_DIR=/nonexistent
+
+Without the override the default stays `CMAKE_CURRENT_SOURCE_DIR`.
+
+Worth knowing when chasing the same leak: the build path *also* reaches the
+binary through `__FILE__` in assertion and logging macros. That accounted for
+128 of the 129 occurrences in a release build, and is fixed with
+
+    -ffile-prefix-map=/your/build/root=/build
+
+which does **not** touch this compile definition — hence the separate knob.
+`strip` does not help either: the strings live in `.rodata` and are read at
+runtime.
+
+Apply after 03. Both touch `CMakeLists.txt`, and 06's hunk offset assumes 03 is
+already in.
+
+Patches 01, 03, 05 and 06 are upstream bugs rather than port-specific hacks.
+
 ## 16:9 — native, via the wiki Gecko codes applied at runtime
 
 The port renders 16:9 natively: the GAME lays out its projection, HUD and 2D for

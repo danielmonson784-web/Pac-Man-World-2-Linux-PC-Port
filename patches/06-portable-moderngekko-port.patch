@@ -1,0 +1,144 @@
+From: pmw2-port
+Subject: Make moderngekko-port usable outside the build tree
+
+moderngekko-port resolved its source root from MODERNGEKKO_SOURCE_DIR, an
+absolute path baked in at compile time. That makes a shipped binary unusable on
+any machine but the builder's, and it leaks the builder's home directory into
+the binary's strings - a redistributable build should carry neither.
+
+ResolveSourceRoot() now prefers, in order:
+  1. $MODERNGEKKO_SOURCE_DIR, if it points at a real tree
+  2. runtime/, ., or .. beside the executable - how a bundle is laid out
+  3. the compiled-in path, so existing in-tree usage is unchanged
+
+and the compiled-in value is overridable so a release build can neutralise it:
+
+    cmake -DMODERNGEKKO_EMBED_SOURCE_DIR=/nonexistent
+
+Without that override the default is unchanged (CMAKE_CURRENT_SOURCE_DIR), so
+in-tree builds behave exactly as before.
+
+Note the path also reaches the binary through __FILE__ in assertion and logging
+macros; -ffile-prefix-map handles those, but not this compile definition, which
+is why it needs its own knob.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index fa2503d..2c50427 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -606,8 +613,16 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+     target_link_libraries(moderngekko-port PRIVATE ModernGekko::Runtime)
+     target_include_directories(moderngekko-port PRIVATE
+         "${CMAKE_CURRENT_SOURCE_DIR}/tools")
++    # Last-resort fallback only: ResolveSourceRoot() prefers $MODERNGEKKO_SOURCE_DIR
++    # and a tree beside the executable, so a redistributable bundle never reads
++    # this. Baking an absolute build path into a shipped binary leaks the
++    # builder's home directory and is wrong on every other machine, so let a
++    # release build override it: -DMODERNGEKKO_EMBED_SOURCE_DIR=/nonexistent
++    if(NOT DEFINED MODERNGEKKO_EMBED_SOURCE_DIR)
++        set(MODERNGEKKO_EMBED_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
++    endif()
+     target_compile_definitions(moderngekko-port PRIVATE
+-        MODERNGEKKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
++        MODERNGEKKO_SOURCE_DIR="${MODERNGEKKO_EMBED_SOURCE_DIR}")
+     if(DOLRECOMP_ENABLE_LLVM)
+         target_compile_definitions(moderngekko-port PRIVATE
+             MODERNGEKKO_DOLRECOMP_LLVM=1)
+diff --git a/tools/moderngekko_port.cpp b/tools/moderngekko_port.cpp
+index af1c2a5..3abb9aa 100644
+--- a/tools/moderngekko_port.cpp
++++ b/tools/moderngekko_port.cpp
+@@ -30,6 +30,46 @@
+ 
+ namespace fs = std::filesystem;
+ 
++namespace
++{
++// MODERNGEKKO_SOURCE_DIR is baked in at compile time and points at the build
++// tree, which makes a shipped moderngekko-port unusable on any other machine.
++// Prefer, in order: an explicit env override, a tree next to the executable
++// (how a redistributable bundle is laid out), then the compiled-in path so
++// existing in-tree usage is unchanged.
++fs::path ResolveSourceRoot()
++{
++  auto looks_valid = [](const fs::path& p) {
++    std::error_code ec;
++    return fs::is_directory(p / "vendor/dolphin/GXRuntime", ec);
++  };
++
++  if (const char* env = std::getenv("MODERNGEKKO_SOURCE_DIR"))
++  {
++    const fs::path from_env(env);
++    if (looks_valid(from_env))
++      return from_env;
++  }
++
++#if !defined(_WIN32)
++  std::error_code ec;
++  const fs::path exe = fs::read_symlink("/proc/self/exe", ec);
++  if (!ec)
++  {
++    for (const char* sub : {"runtime", ".", ".."})
++    {
++      const fs::path candidate = exe.parent_path() / sub;
++      if (looks_valid(candidate))
++        return fs::weakly_canonical(candidate, ec);
++    }
++  }
++#endif
++
++  return fs::path(MODERNGEKKO_SOURCE_DIR);
++}
++}  // namespace
++
++
+ namespace
+ {
+ constexpr std::string_view RECOMPCORE_REVISION = "55c7b023fa0f4eba1cf3fdbbb25b1c5ec468d5ac";
+@@ -576,7 +616,7 @@ std::optional<fs::path> Build(const char* argv0, const fs::path& root,
+   const auto& game = *inspected.metadata;
+   if (options.output.empty())
+     options.output = DefaultOutput();
+-  const fs::path source_root = fs::path(MODERNGEKKO_SOURCE_DIR);
++  const fs::path source_root = ResolveSourceRoot();
+   const DolPatchSet patches = LoadDefaultDolPatches(
+       source_root / "vendor/dolphin/Data/Sys/GameSettings" / (game.disc_id + ".ini"));
+   if (!patches)
+@@ -670,14 +710,26 @@ std::optional<fs::path> Build(const char* argv0, const fs::path& root,
+       pgo_compile_flags += " -Werror=profile-instr-out-of-date";
+   }
+ 
++  // Optional symbol map beside sys/main.dol. DolRecomp turns it into named
++  // DOLRECOMP_SYMBOL_* constants, so code mods can hook by name instead of by
++  // raw guest address. Its hash joins the cache identity: changing the map has
++  // to invalidate the cached module, or renames would silently not take.
++  const fs::path symbol_map = game.main_dol.parent_path() / "main.map";
++  const bool has_symbol_map = fs::is_regular_file(symbol_map);
++  const auto symbol_map_hash =
++      has_symbol_map ? moderngekko::HashFileSha256(symbol_map) : std::nullopt;
++  if (has_symbol_map)
++    std::cout << "Symbol map: " << symbol_map << '\n';
++
+   const std::string identity = std::string(RECOMPCORE_REVISION) + "|dolrecomp=" +
+       std::string(DOLRECOMP_REVISION) + "|module-abi=" +
+       std::to_string(MODERNGEKKO_MODULE_ABI_VERSION) + "|cpu-abi=" +
+       std::to_string(MODERNGEKKO_CPU_ABI_VERSION) + "|" + compiler_identity + "|" +
+       std::string(architecture) + "|" + flags + "|backend=" + options.backend +
+       "|patches=" + patches.fingerprint + "|dolrecomp_binary=" +
+-      *dolrecomp_hash + "|" + moderngekko::pgo::PgoCacheIdentity(options.pgo) +
+-      DolRecompCodegenIdentity();
++      *dolrecomp_hash + "|map=" +
++      (symbol_map_hash ? *symbol_map_hash : std::string("none")) + "|" +
++      moderngekko::pgo::PgoCacheIdentity(options.pgo) + DolRecompCodegenIdentity();
+   std::ostringstream key_tail;
+   key_tail << std::hex << std::setfill('0') << std::setw(16) << Fnv1a(identity);
+   const std::string cache_key = game.dol_sha256 + "-" + key_tail.str();
+@@ -757,6 +809,8 @@ std::optional<fs::path> Build(const char* argv0, const fs::path& root,
+   std::string generate = Quote(dolrecomp) + " -j" +
+                          std::to_string(std::max(1u, std::thread::hardware_concurrency())) +
+                          " --backend=" + options.backend + " ";
++  if (has_symbol_map)
++    generate += "--map " + Quote(symbol_map) + " ";
+   if (game.platform == moderngekko::GamePlatform::GameCube)
+     generate += "--cpu gekko --gamecube " + Quote(recomp_dol) + " " + Quote(generated_parent);
+   else
