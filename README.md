@@ -30,7 +30,7 @@ Tooling and patches for building a **native Linux port of Pac-Man World 2**
 | `01-gxruntime-cpu-abi-v4` | GXRuntime CPU ABI version skew that made valid modules get rejected. |
 | `02-port-symbol-map` | Pass `--map` when a symbol map exists; fold its hash into the module cache key. |
 | `03-cmake-windows-crosscompile` | MinGW cross-build: guard X11/Wayland targets behind `NOT WIN32`. |
-| `04-ingame-settings-menu` | In-game settings menu on Escape (video, audio, input remapping, mods, clean exit). |
+| `04-ingame-settings-menu` | In-game settings menu on Escape (video, audio, shader preloading, input remapping, mods, clean exit). |
 | `05-audio-volume-alsa-pulse` | Volume/mute silently did nothing on ALSA/PulseAudio — `SoundStream::SetVolume` is an empty virtual on those backends. Applies the gain in the mixer instead. |
 | `06-portable-moderngekko-port` | A shipped `moderngekko-port` baked an absolute build path in at compile time, making it unusable elsewhere and leaking the builder's home directory. Resolves the source root at runtime instead. |
 

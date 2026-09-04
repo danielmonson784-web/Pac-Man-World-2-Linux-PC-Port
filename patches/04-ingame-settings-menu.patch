@@ -738,7 +738,7 @@ index 8d0ae0c..b4b6798 100644
    KeySym key;
    for (int num_events = XPending(m_display); num_events > 0; num_events--)
 diff --git a/Source/Core/VideoCommon/OnScreenUI.cpp b/Source/Core/VideoCommon/OnScreenUI.cpp
-index 451109b..63f064d 100644
+index 451109b..f5649b2 100644
 --- a/Source/Core/VideoCommon/OnScreenUI.cpp
 +++ b/Source/Core/VideoCommon/OnScreenUI.cpp
 @@ -10,12 +10,37 @@
@@ -779,7 +779,7 @@ index 451109b..63f064d 100644
  
  #include "VideoCommon/AbstractGfx.h"
  #include "VideoCommon/AbstractPipeline.h"
-@@ -413,6 +438,643 @@ void OnScreenUI::DrawChallengesAndLeaderboards()
+@@ -413,6 +438,694 @@ void OnScreenUI::DrawChallengesAndLeaderboards()
  #endif  // USE_RETRO_ACHIEVEMENTS
  }
  
@@ -1361,6 +1361,57 @@ index 451109b..63f064d 100644
 +
 +    ImGui::Separator();
 +
++    // --- shaders ------------------------------------------------------------
++    // Stutter on first sight of an effect is shader compilation happening mid
++    // frame. Preloading builds the whole cache before the game starts: a longer
++    // wait once, then no hitching. The cache is per GPU and driver version, so
++    // the long wait returns after a driver update, then goes away again.
++    bool preload = Config::Get(Config::GFX_WAIT_FOR_SHADERS_BEFORE_STARTING);
++    if (ImGui::Checkbox("Preload all shaders at startup", &preload))
++      Config::SetBaseOrCurrent(Config::GFX_WAIT_FOR_SHADERS_BEFORE_STARTING, preload);
++    if (ImGui::IsItemHovered())
++    {
++      ImGui::SetTooltip("Compiles every shader before the game starts, so nothing\n"
++                        "stutters later. The first launch after enabling this takes\n"
++                        "noticeably longer; after that the cache is reused.\n"
++                        "Takes effect on the next launch.");
++    }
++
++    // Ubershaders are a slower catch-all that can draw anything immediately, so
++    // the specialised shader can compile in the background without stalling.
++    // Which trade-off is right depends on the GPU, so expose it rather than
++    // picking for the user.
++    int sc_mode = static_cast<int>(Config::Get(Config::GFX_SHADER_COMPILATION_MODE));
++    const char* const sc_names[] = {"Synchronous (may stutter)", "Synchronous ubershaders",
++                                    "Asynchronous ubershaders (smoothest)",
++                                    "Skip drawing until ready"};
++    if (sc_mode >= 0 && sc_mode < IM_ARRAYSIZE(sc_names))
++    {
++      if (ImGui::Combo("Shader compilation", &sc_mode, sc_names, IM_ARRAYSIZE(sc_names)))
++      {
++        Config::SetBaseOrCurrent(Config::GFX_SHADER_COMPILATION_MODE,
++                                 static_cast<ShaderCompilationMode>(sc_mode));
++      }
++    }
++    if (ImGui::IsItemHovered())
++    {
++      ImGui::SetTooltip("How shaders are built while playing.\n"
++                        "Asynchronous ubershaders avoids stutter at some GPU cost;\n"
++                        "Synchronous is exact but can hitch on new effects.");
++    }
++
++    bool shader_cache = Config::Get(Config::GFX_SHADER_CACHE);
++    if (ImGui::Checkbox("Keep shader cache on disk", &shader_cache))
++      Config::SetBaseOrCurrent(Config::GFX_SHADER_CACHE, shader_cache);
++    if (ImGui::IsItemHovered())
++    {
++      ImGui::SetTooltip("Reuses compiled shaders across launches. Turning this off\n"
++                        "means recompiling everything every time - only useful when\n"
++                        "chasing a shader bug.");
++    }
++
++    ImGui::Spacing();
++
 +    bool vsync = Config::Get(Config::GFX_VSYNC);
 +    if (ImGui::Checkbox("V-Sync", &vsync))
 +      Config::SetBaseOrCurrent(Config::GFX_VSYNC, vsync);
@@ -1423,7 +1474,7 @@ index 451109b..63f064d 100644
  void OnScreenUI::Finalize()
  {
    auto lock = GetImGuiLock();
-@@ -422,6 +1084,7 @@ void OnScreenUI::Finalize()
+@@ -422,6 +1135,7 @@ void OnScreenUI::Finalize()
    DrawDebugText();
    OSD::DrawMessages();
    DrawChallengesAndLeaderboards();
