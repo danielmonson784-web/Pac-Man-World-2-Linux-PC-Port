@@ -33,6 +33,7 @@ Tooling and patches for building a **native Linux port of Pac-Man World 2**
 | `04-ingame-settings-menu` | In-game settings menu on Escape (video, audio, shader preloading, input remapping, mods, clean exit). |
 | `05-audio-volume-alsa-pulse` | Volume/mute silently did nothing on ALSA/PulseAudio — `SoundStream::SetVolume` is an empty virtual on those backends. Applies the gain in the mixer instead. |
 | `06-portable-moderngekko-port` | A shipped `moderngekko-port` baked an absolute build path in at compile time, making it unusable elsewhere and leaking the builder's home directory. Resolves the source root at runtime instead. |
+| `07-ingame-restart-relaunch` | The menu's Reset button hung the game: a statically recompiled module cannot be re-entered from the reset vector, so the video backend rebuilt while the guest never resumed. Replaced with a Restart that relaunches the process. |
 
 Patches 01, 03 and 05 are upstream bugs rather than port-specific hacks.
 Write-ups suitable for filing are in `docs/upstream-issues/`.
@@ -43,25 +44,23 @@ The port renders 16:9 natively: the **game** lays out its own projection, HUD
 and 2D for a wide screen. It is not Dolphin's widescreen hack, and not a
 stretched 4:3 image.
 
-It is a **live** toggle in the in-game settings menu ("16:9 widescreen") - it
-applies immediately, with no reset.
+It is a checkbox in the in-game settings menu ("Native 16:9 widescreen"). The
+codes are applied while the game boots, so the checkbox takes effect on the next
+launch: tick it, then press **Restart** in the same menu, which relaunches the
+game for you (a few seconds).
 
-That works because none of the 13 code hooks ever has to be un-patched. Every
-one of them reads its scale from one of two scratch words in guest RAM
-(`0x8000328C`, `0x80003294`), so writing pristine neutral values there turns each
-hook into an exact identity operation with its branch left permanently in place.
-Toggling is then just 55 word writes, done on the CPU thread immediately after
-the Gecko handler runs - ordering matters, because the handler rewrites those
-same constants every field and would otherwise undo the neutrals before the
-guest read them.
-
-52 of the 55 neutral values were checked byte-for-byte against the pristine
-`main.dol`. The other three are scratch words that are zero padding in the
-pristine image. One of those, `0x80003294`, could not be read statically at all -
-its hook replaces a load through a runtime object pointer - and an inferred
-value of 0.5 turned out to be **wrong**: pristine 4:3 draws the Pac-Man life
-icon 64x64, and 0.5 produced 48x64, exactly 3/4 too narrow. The real value is
-2/3, confirmed by measuring the icon against a codes-disabled reference run.
+A live toggle was built first and does not survive contact with the game. The
+idea was sound - each of the 13 code hooks reads its scale from one of two
+scratch words in guest RAM (`0x8000328C`, `0x80003294`), so writing pristine
+neutral values there should turn every hook into an identity operation with its
+branch left in place, making a switch just 55 word writes. 52 of those 55
+neutrals were confirmed byte-for-byte against a pristine `main.dol`. It failed on
+the remaining ones: two hooks replace a load through a *runtime object pointer*,
+so there is no constant that neutralises them, and the resulting "4:3" stayed
+subtly squeezed. (An inferred neutral of 0.5 for `0x80003294` was wrong in a
+measurable way too - pristine 4:3 draws the Pac-Man life icon 64x64 and 0.5 gave
+48x64, exactly 3/4 too narrow; the real value is 2/3.) Rebooting is the only way
+to get a true 4:3 back, so that is what the setting does.
 
 Under the hood this enables the Dolphin-wiki `$16:9 Widescreen` Gecko codes for
 `GP2EAF` at runtime (`EnableCheats = True`, codes in

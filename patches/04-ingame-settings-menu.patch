@@ -548,8 +548,44 @@ index c3fdd35..16139a2 100644
    // If the game does change VI registers while a frame is scanning out, we can defer output
    // until the end so the last register values are used. This still isn't accurate, but it does
    // produce more acceptable results in some problematic cases.
+diff --git a/Source/Core/DolphinNoGUI/MainNoGUI.cpp b/Source/Core/DolphinNoGUI/MainNoGUI.cpp
+index 92a25d4..839274b 100644
+--- a/Source/Core/DolphinNoGUI/MainNoGUI.cpp
++++ b/Source/Core/DolphinNoGUI/MainNoGUI.cpp
+@@ -19,6 +19,7 @@
+ #include "Core/Boot/Boot.h"
+ #include "Core/Boot/BootManager.h"
+ #include "Core/Core.h"
++#include "VideoCommon/OnScreenUI.h"
+ #include "Core/DolphinAnalytics.h"
+ #include "Core/Host.h"
+ #include "Core/System.h"
+@@ -344,6 +345,23 @@ int main(const int argc, char* argv[])
+   Core::Shutdown(Core::System::GetInstance());
+   s_platform.reset();
+ 
++#ifndef _WIN32
++  // Restart requested from the in-game menu. A guest-side reset cannot work
++  // with a statically recompiled module - it is initialised once and cannot be
++  // re-entered from the reset vector, so the video backend rebuilds but the
++  // guest never resumes. Restarting the process is the only way to reboot the
++  // game. Everything above has already torn down the window, the video backend
++  // and audio, so it is safe to replace the process image here and not earlier.
++  if (VideoCommon::g_ingame_restart_request.load(std::memory_order_relaxed))
++  {
++    std::vector<char*> new_argv(argv, argv + argc);
++    new_argv.push_back(nullptr);
++    execv("/proc/self/exe", new_argv.data());
++    // Only reached if execv failed; fall through and exit normally.
++    std::fprintf(stderr, "Restart failed; please relaunch.\n");
++  }
++#endif
++
+   return 0;
+ }
+ 
 diff --git a/Source/Core/DolphinNoGUI/PlatformX11.cpp b/Source/Core/DolphinNoGUI/PlatformX11.cpp
-index 8d0ae0c..b4b6798 100644
+index 8d0ae0c..42d39db 100644
 --- a/Source/Core/DolphinNoGUI/PlatformX11.cpp
 +++ b/Source/Core/DolphinNoGUI/PlatformX11.cpp
 @@ -17,6 +17,7 @@ static constexpr auto X_None = None;
@@ -620,7 +656,7 @@ index 8d0ae0c..b4b6798 100644
    }
  
    // Enter fullscreen if enabled.
-@@ -181,8 +196,116 @@ void PlatformX11::UpdateWindowPosition()
+@@ -181,8 +196,124 @@ void PlatformX11::UpdateWindowPosition()
                 &m_window_height, &borderDummy, &depthDummy);
  }
  
@@ -668,6 +704,14 @@ index 8d0ae0c..b4b6798 100644
 +
 +  // The menu cannot touch the window itself - it runs on the video thread and
 +  // does not own the X connection - so it raises a flag and this consumes it.
++  // Deliberately load() rather than exchange(): main() reads the same flag after
++  // shutdown to decide whether to re-exec.
++  if (VideoCommon::g_ingame_restart_request.load(std::memory_order_relaxed))
++  {
++    Stop();
++    return;
++  }
++
 +  if (VideoCommon::g_ingame_exit_request.exchange(false, std::memory_order_relaxed))
 +  {
 +    // Same call the window-manager close button makes, so the shutdown is
@@ -738,7 +782,7 @@ index 8d0ae0c..b4b6798 100644
    KeySym key;
    for (int num_events = XPending(m_display); num_events > 0; num_events--)
 diff --git a/Source/Core/VideoCommon/OnScreenUI.cpp b/Source/Core/VideoCommon/OnScreenUI.cpp
-index 451109b..f5649b2 100644
+index 451109b..84cffb9 100644
 --- a/Source/Core/VideoCommon/OnScreenUI.cpp
 +++ b/Source/Core/VideoCommon/OnScreenUI.cpp
 @@ -10,12 +10,37 @@
@@ -779,7 +823,7 @@ index 451109b..f5649b2 100644
  
  #include "VideoCommon/AbstractGfx.h"
  #include "VideoCommon/AbstractPipeline.h"
-@@ -413,6 +438,694 @@ void OnScreenUI::DrawChallengesAndLeaderboards()
+@@ -413,6 +438,700 @@ void OnScreenUI::DrawChallengesAndLeaderboards()
  #endif  // USE_RETRO_ACHIEVEMENTS
  }
  
@@ -789,6 +833,7 @@ index 451109b..f5649b2 100644
 +std::atomic<bool> g_ingame_menu_open{false};
 +std::atomic<bool> g_ingame_fullscreen_request{false};
 +std::atomic<bool> g_ingame_exit_request{false};
++std::atomic<bool> g_ingame_restart_request{false};
 +
 +namespace
 +{
@@ -1249,15 +1294,15 @@ index 451109b..f5649b2 100644
 +        if (ImGui::Button("Reset now"))
 +        {
 +          s_widescreen_reset_pending = false;
-+          // Aspect flips at the same instant the guest reboots and picks up the
-+          // new code state, so render and presentation never disagree.
-+          // ON: the guest renders anamorphic 16:9 and the presentation has to
-+          // stretch it back out. OFF: a genuine 4:3 render, presented 4:3.
++          // Aspect flips together with the code state, so render and
++          // presentation never disagree. ON: the guest renders anamorphic 16:9
++          // and the presentation stretches it back out. OFF: a genuine 4:3
++          // render, presented 4:3.
 +          Config::SetBaseOrCurrent(Config::GFX_ASPECT_RATIO,
 +                                   WidescreenFlag() ? AspectMode::ForceWide
 +                                                    : AspectMode::ForceStandard);
 +          g_ingame_menu_open.store(false, std::memory_order_relaxed);
-+          system.GetProcessorInterface().ResetButton_Tap();
++          g_ingame_restart_request.store(true, std::memory_order_relaxed);
 +        }
 +      }
 +      if (ImGui::IsItemHovered())
@@ -1450,11 +1495,16 @@ index 451109b..f5649b2 100644
 +    if (ImGui::Button("Resume", ImVec2(120, 0)))
 +      g_ingame_menu_open.store(false, std::memory_order_relaxed);
 +    ImGui::SameLine();
-+    if (ImGui::Button("Reset", ImVec2(120, 0)))
++    if (ImGui::Button("Restart", ImVec2(120, 0)))
 +    {
++      // Not a guest reset - see g_ingame_restart_request. This closes the app
++      // cleanly and starts it again, which is also what picks up a widescreen
++      // change, since the Gecko codes are applied when the game boots.
 +      g_ingame_menu_open.store(false, std::memory_order_relaxed);
-+      system.GetProcessorInterface().ResetButton_Tap();
++      g_ingame_restart_request.store(true, std::memory_order_relaxed);
 +    }
++    if (ImGui::IsItemHovered())
++      ImGui::SetTooltip("Closes and reopens the game. Takes a few seconds.");
 +    ImGui::SameLine();
 +    if (ImGui::Button("Exit", ImVec2(120, 0)))
 +    {
@@ -1474,7 +1524,7 @@ index 451109b..f5649b2 100644
  void OnScreenUI::Finalize()
  {
    auto lock = GetImGuiLock();
-@@ -422,6 +1135,7 @@ void OnScreenUI::Finalize()
+@@ -422,6 +1141,7 @@ void OnScreenUI::Finalize()
    DrawDebugText();
    OSD::DrawMessages();
    DrawChallengesAndLeaderboards();
@@ -1483,7 +1533,7 @@ index 451109b..f5649b2 100644
  
    // Check for font changes
 diff --git a/Source/Core/VideoCommon/OnScreenUI.h b/Source/Core/VideoCommon/OnScreenUI.h
-index e9a14e0..1388409 100644
+index e9a14e0..fe89028 100644
 --- a/Source/Core/VideoCommon/OnScreenUI.h
 +++ b/Source/Core/VideoCommon/OnScreenUI.h
 @@ -3,6 +3,7 @@
@@ -1494,7 +1544,7 @@ index e9a14e0..1388409 100644
  #include <map>
  #include <memory>
  #include <mutex>
-@@ -19,6 +20,21 @@ struct ImTextureData;
+@@ -19,6 +20,28 @@ struct ImTextureData;
  
  namespace VideoCommon
  {
@@ -1508,6 +1558,13 @@ index e9a14e0..1388409 100644
 +// to go through the platform: Core::Stop() alone stops the emulated machine
 +// but leaves the platform's MainLoop running, so the window would linger.
 +extern std::atomic<bool> g_ingame_exit_request;
++
++// Set by the menu's Restart button. A guest-side reset (ResetButton_Tap)
++// cannot work here: the statically recompiled module is initialised once and
++// cannot be re-entered from the reset vector, so the video backend rebuilds
++// but the guest never resumes - a black screen at a steady frame rate with
++// the CPU spinning. This asks for a real process restart instead.
++extern std::atomic<bool> g_ingame_restart_request;
 +
 +// High-refresh tuning, live-adjustable from the menu and consumed per VI field
 +// by Core/HW/PMW2Widescreen.cpp. Stored as bit patterns of floats so they stay

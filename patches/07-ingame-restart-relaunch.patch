@@ -1,0 +1,71 @@
+diff --git a/tools/moderngekko_run.cpp b/tools/moderngekko_run.cpp
+index d6b3569..7c9dc20 100644
+--- a/tools/moderngekko_run.cpp
++++ b/tools/moderngekko_run.cpp
+@@ -19,6 +19,15 @@
+ #include <thread>
+ #include <vector>
+ 
++#if !defined(_WIN32)
++// For the execv() relaunch at the end of main().
++#include <climits>
++#include <unistd.h>
++#endif
++
++// The in-game settings overlay raises the restart flag this reads.
++#include "VideoCommon/OnScreenUI.h"
++
+ #if defined(_WIN32)
+ // For the affinity/priority setup in main(). WIN32_LEAN_AND_MEAN keeps the
+ // winsock and GDI surface out of a translation unit that only needs the
+@@ -456,15 +465,48 @@ void PinProcessToLargestCache() {
+ #endif
+ 
+ int main(int argc, char **argv) {
++  int result = 1;
+   try {
+ #if defined(_WIN32)
+     PinProcessToLargestCache();
+ #endif
+-    return RunMain(argc, argv);
++    result = RunMain(argc, argv);
+   } catch (const std::exception &error) {
+     std::cerr << "fatal error: " << error.what() << '\n';
++    return 1;
+   } catch (...) {
+     std::cerr << "fatal error: unknown exception\n";
++    return 1;
+   }
+-  return 1;
++
++#if !defined(_WIN32)
++  // The overlay's "Restart" button asks for a full relaunch rather than a guest
++  // reset. Two reasons: the Gecko codes that switch the game between 4:3 and
++  // native 16:9 are only applied while the game boots, and the statically
++  // recompiled module cannot re-enter from the reset vector at all - tapping
++  // the reset line just hangs it. RunMain() has returned by now, so shutdown is
++  // complete and the process image can simply be replaced. execv keeps the pid,
++  // the controlling terminal and the working directory, so a launcher script
++  // waiting on us stays attached to the new instance.
++  if (VideoCommon::g_ingame_restart_request.load(std::memory_order_relaxed)) {
++    std::vector<char *> new_argv(argv, argv + argc);
++    new_argv.push_back(nullptr);
++    // Resolve the symlink instead of exec'ing "/proc/self/exe" literally: the
++    // kernel names the new process after the path it was exec'd with, so the
++    // literal form would leave the game showing up as "exe" in ps and system
++    // monitors, and would stop pgrep/pkill finding it by name afterwards.
++    char exe_path[PATH_MAX];
++    const ssize_t exe_len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
++    if (exe_len > 0) {
++      exe_path[exe_len] = '\0';
++      execv(exe_path, new_argv.data());
++    }
++    // Still worth trying if the executable was renamed or deleted underneath us.
++    execv("/proc/self/exe", new_argv.data());
++    // Only reached if both failed, in which case exit normally.
++    std::cerr << "Restart failed; please relaunch.\n";
++  }
++#endif
++
++  return result;
+ }

@@ -110,7 +110,7 @@ squeezed back into a 4:3 frame and looks thin; ForceWide alone stretches the
 Settings apply live and are verified: Show FPS makes the FPS overlay appear,
 internal resolution visibly changes the image, the widescreen hack widens the
 view with correct proportions, and volume/mute are measured in
-`05-audio-volume-alsa-pulse.patch`. Plus V-Sync, Resume / Reset / Exit.
+`05-audio-volume-alsa-pulse.patch`. Plus V-Sync, Resume / Restart / Exit.
 Mouse-driven.
 
 ## 05-audio-volume-alsa-pulse.patch  (volume and mute actually work)
@@ -168,6 +168,60 @@ Apply after 03. Both touch `CMakeLists.txt`, and 06's hunk offset assumes 03 is
 already in.
 
 Patches 01, 03, 05 and 06 are upstream bugs rather than port-specific hacks.
+
+## 07-ingame-restart-relaunch.patch  (the menu's Restart button)
+
+The ModernGekko-side half of the Escape menu; `04` is the Dolphin-side half.
+Kept separate only because the two live in different repositories -- `04`
+applies to `vendor/dolphin`, this one to `ModernGekko` itself.
+
+The menu originally had a **Reset** button that called `ResetButton_Tap()`. That
+hangs the game: a statically recompiled module is initialised once and cannot be
+re-entered from the reset vector, so the video backend dutifully tears down and
+rebuilds -- the log shows the Vulkan context and both shader caches
+reinitialising -- while the guest never resumes. The symptom is a black screen at
+a steady frame delta of exactly 0.000 with the process still alive at ~47% CPU
+and the FPS counter still ticking, which reads as a freeze rather than an error.
+This is not specific to the widescreen flow; the plain Reset button hung the same
+way.
+
+There is also a second reason a guest reset would not have been enough. The
+Gecko codes that switch the game between 4:3 and native 16:9 are applied while
+the game boots, so a widescreen change only takes effect on a fresh boot.
+
+So Reset became **Restart**, which relaunches the process. The overlay runs on
+the video thread and owns neither the X connection nor `main`, so it raises
+`g_ingame_restart_request`; `PlatformX11::PollOverlayInput` consumes it and calls
+`Platform::Stop()` (the same path as Exit), and `main()` re-execs once `RunMain`
+has returned and shutdown is complete.
+
+Two things worth knowing:
+
+  * The re-exec resolves `/proc/self/exe` with `readlink` and execs the resolved
+    path. Exec'ing the literal `"/proc/self/exe"` works, but the kernel names the
+    new process after the path it was exec'd with, so the game came back as
+    **`exe`** in `ps` -- and `pgrep`/`pkill moderngekko-run` stopped finding it.
+  * `PollOverlayInput` deliberately `load()`s the flag rather than `exchange()`ing
+    it, because `main()` reads the same flag after shutdown to decide whether to
+    re-exec.
+
+`execv` keeps the pid, the controlling terminal and the working directory, so
+`play.sh` stays attached to the new instance.
+
+The same block is mirrored into `Source/Core/DolphinNoGUI/MainNoGUI.cpp` in
+patch `04`, for the equivalent upstream frontend. Note that `moderngekko-run`
+does **not** build `MainNoGUI.cpp` -- it has its own `main` in
+`tools/moderngekko_run.cpp`. Putting the re-exec only in `MainNoGUI.cpp` compiles
+cleanly, links cleanly and does exactly nothing, which cost a debugging round:
+the giveaway is `strings moderngekko-run | grep "Restart failed"` returning 0.
+
+Verified end to end, on the flow the bug was reported against: tick **Native
+16:9 widescreen** (`userdata/GameSettings/GP2EAF.ini` gains `[Gecko_Enabled]` /
+`$16:9 Widescreen`), click **Restart**, and the captured stdout shows one
+`[staticrecomp] shutdown:` line followed by a second `core init` and
+`module loaded` -- pid unchanged (execv), `comm` still `moderngekko-run`, and the
+game back up at ~62% CPU with 5/5 moving frames and an active image of 1168x662,
+aspect 1.764.
 
 ## 16:9 — native, via the wiki Gecko codes applied at runtime
 
