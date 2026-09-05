@@ -1,0 +1,49 @@
+diff --git a/src/runtime/dolphin_runtime.cpp b/src/runtime/dolphin_runtime.cpp
+index f9b5405..38e15a8 100644
+--- a/src/runtime/dolphin_runtime.cpp
++++ b/src/runtime/dolphin_runtime.cpp
+@@ -610,6 +610,16 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+   if (!s_external_ui_common) {
+     UICommon::SetUserDirectory(impl->config.user_directory.string());
+     UICommon::Init();
++    // Upstream only ever calls this from DolphinQt's main(), which is not built
++    // here, so nothing was creating the user directories. Cache/ in particular
++    // never existed, and ShaderGenCommon's File::CreateDir for Cache/Shaders/ is
++    // non-recursive, so it failed on the missing parent every launch. The shader
++    // cache therefore never persisted - every session started cold with "Loaded 0
++    // cached shaders", and every effect the player had not seen yet in THAT
++    // session drew through the ubershader while it compiled. That is very
++    // expensive when SSAA is on, because SSAA here is per-sample shading, so the
++    // ubershader runs once per MSAA sample on every pixel it covers.
++    UICommon::CreateDirectories();
+     impl->ui_initialized = true;
+   }
+   Config::SetBase(Config::MAIN_FULLSCREEN, impl->config.fullscreen);
+diff --git a/tools/moderngekko_run.cpp b/tools/moderngekko_run.cpp
+index 7c9dc20..ca84ae7 100644
+--- a/tools/moderngekko_run.cpp
++++ b/tools/moderngekko_run.cpp
+@@ -57,6 +57,7 @@ void Usage() {
+                "       [--graphics <backend>] [--audio <backend>]\n"
+                "       [--mods <directory>] [--no-mods]\n"
+                "       [--wayland] [-X11] [--headless] [--allow-interpreter]\n"
++               "       [--background-input]\n"
+                "       [--netplay-host | --netplay-join <host>] "
+                "[--netplay-port <port>]\n"
+                "       [--nickname <name>] [--buffer <auto|1-20>] "
+@@ -200,6 +201,15 @@ int RunMain(int argc, char **argv) {
+       config.window_system = moderngekko::WindowSystem::Wayland;
+     else if (arg == "--mute")
+       config.audio.mute = true;
++    else if (arg == "--background-input")
++      // Keep reading input while the window is unfocused. Without it Dolphin
++      // stops polling on focus loss and a game can read that as the pad being
++      // unplugged ("PLEASE INSERT A CONTROLLER INTO CONTROLLER SOCKET 1").
++      // This has to be a runtime option: dolphin_runtime.cpp pushes this field
++      // into MAIN_INPUT_BACKGROUND_INPUT with Config::SetBase on every boot, so
++      // editing BackgroundInput in Dolphin.ini is overwritten and then
++      // persisted back over the user's edit on shutdown.
++      config.input.background_input = true;
+     else if (arg == "--automation-dir")
+       config.automation.directory = value("--automation-dir");
+     else if (arg == "--headless")

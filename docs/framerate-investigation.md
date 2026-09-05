@@ -690,3 +690,391 @@ The conclusion from the whole investigation stands: this engine is fixed-step,
 every route to a genuinely higher guest frame rate was eliminated by
 measurement, and interpolation could not be made to render correctly in real
 levels. 60 FPS, rendered honestly, is the ceiling here.
+
+---
+
+# Transform interpolation, round 13 (2026-09-04): the four real bugs, found by audit before writing any code
+
+The user asked for interpolation back, "done correctly, without guessing". Rather than
+re-implement, the per-draw state a replay must restore was audited exhaustively against the
+code first. That found the actual causes of the twelve-round failure. All four are invisible
+to the `draw_t = 1.0` isolation test, which is why that test "proved" the maths innocent and
+the search never terminated.
+
+1. **`m_base_buffer_pointer` is not this draw's vertex start on Vulkan.** `VKVertexManager::
+   ResetBuffer` sets it to `m_vertex_stream_buffer->GetHostPointer()` - offset 0 of the whole
+   48 MB ring (VKVertexManager.cpp:166) - while the draw's vertices begin at
+   `GetCurrentHostPointer()` (line 168), typically megabytes further in. Reading
+   `[m_base_buffer_pointer, m_cur_buffer_pointer)` returns ring contents shifted by an
+   arbitrary offset: shattered geometry, every draw, at any t. The base class version
+   (VertexManagerBase.cpp:342-348) DOES set it to the allocation start, which is why the
+   formula looks right and works on Null/SW. Correct range:
+   `[m_cur_buffer_pointer - num_verts*stride, m_cur_buffer_pointer)`.
+   Upstream trips on this too: `CalculateZSlope` (line 720) compares
+   `(m_cur_buffer_pointer - m_base_buffer_pointer) < stride*3`, meaningless on Vulkan.
+   Note the mapped region is `HOST_ACCESS_SEQUENTIAL_WRITE` (VKStreamBuffer.cpp:50) -
+   write-combined, so reading it back per draw is slow as well as wrong.
+
+2. **`BindTextures(used_textures, samplers)` does not bind the textures you pass it.** It has
+   no texture parameter; it binds live `m_bound_textures[i]` (TextureCacheBase.cpp:1072-1086).
+   `used_textures` is only a mask. Every replayed draw therefore samples whatever was bound
+   LAST in the real frame. That is "background terrain was missing", and it also survives
+   `draw_t = 1.0`.
+
+3. **Uniform dirty flags gate both the upload and the descriptor offset.**
+   `VKVertexManager::UpdateVertexShaderConstants` (line 206) early-returns on `!dirty` without
+   calling `StateTracker::SetGXUniformBuffer()`, so the descriptor still points at the previous
+   draw's slice. A replay that writes constants without setting `dirty` on all three managers
+   draws every batch with the PRECEDING batch's matrices - a one-draw lag, not a bad lerp.
+
+4. **Viewport and scissor are sticky dynamic state.** `BPFunctions::SetScissorAndViewport` runs
+   only when `XFStateManager::DidViewportChange()` fires inside `VertexShaderManager::SetConstants`
+   - once per change, not per draw. Replaying N draws without restoring them gives every draw
+   the last draw's viewport. The pipeline's only dynamic states are viewport and scissor
+   (VKPipeline.cpp:390-393).
+
+Corrections to the old post-mortem: "blend/depth config beyond the pipeline object" cannot
+exist - `UpdatePipelineConfig` folds Rasterization/Depth/Blending state plus shaders, vertex
+format and framebuffer_state into one `AbstractPipelineConfig` and VKPipeline bakes all of it.
+"TEV/indirect state" and "vertex format details" are likewise not loose: TEV/indirect live
+inside PixelShaderConstants, and the vertex format is `m_config.vertex_format` in the pipeline.
+Also: capture must happen between `pixel_shader_manager.custom_constants = ...` and
+`UploadUniforms()`, because `Geometry/PixelShaderManager::SetConstants` mutate the blocks
+INSIDE `RenderDrawCall`.
+
+## Why it is still not buildable as a draw replay
+
+Fixing all four would still not produce a working feature:
+
+- **A frame is not a list of draws.** EFB clears, EFB->VRAM copies, EFB->RAM copies (which
+  write guest memory and must never be re-issued), pixel-format reinterpretation and the XFB
+  copy all happen outside `Flush()`. Any effect that copies the EFB mid-frame and samples it
+  later reads, on replay, what that entry held at END of frame. The replay stream would have to
+  interleave clears and copies in original order - that is the FIFO stream, not a draw list.
+- **Texture contents cannot be pinned.** `InvalidateTexture` moves the AbstractTexture out of a
+  still-live entry; render-target textures are recycled within the same frame;
+  `DoPartialTextureUpdates` blits into a live entry in place. `AcquireContentLock()` is not a
+  way out - a locked entry makes partial updates `PanicAlertFmt` and return null.
+- **Presentation mismatch.** `Presenter::Present` presents the XFB cache entry, carrying copy
+  filter, gamma LUT, y-scale and stitching. A tween resolved from the EFB gets none of that, so
+  real and interpolated frames differ in brightness and sharpness and alternate at 60 Hz -
+  flicker even with perfect geometry.
+- **Object identity is not recoverable**, and this is fatal on its own. Interpolation must pair
+  an object in frame N with the same object in frame N-1. Draw index, content signature and XF
+  matrix slot were all tried in the earlier rounds and all fail in a busy scene.
+
+## What could work instead
+
+Image-space, at present time, where none of the above applies. The strongest variant is
+**camera reprojection**: warp the last presented frame using the view/projection delta and the
+depth buffer. It needs no object identity (the fatal blocker), no draw capture, and no texture
+lifetime guarantees; objects moving relative to the world are wrong but camera motion dominates
+perceived smoothness in this game. Any interpolation costs one full frame (16.68 ms) of input
+latency by construction, since the tween can only be shown once frame N exists.
+
+Worth knowing: the user's display runs at 119.86 Hz, so there IS somewhere to put a tween.
+
+## Method note that generalises
+
+Cross-run frame comparison does not work on this port: two launches of an identical build
+differ by ~83% of pixels, because the attract demo drifts. Any A/B of rendering must happen
+within ONE run - e.g. with F10 pause holding the scene still while a toggle is flipped.
+`tools/framecmp.py` implements the capture/compare and was calibrated to find this.
+
+## Step 2 (2026-09-04): the reprojection warp, isolated and verified
+
+Built the depth-based camera warp as `VideoCommon/Reprojection.{h,cpp}` plus
+`FramebufferShaderGen::GenerateReprojectionPixelShader`, with the shader generator
+living beside the other framebuffer utility shaders because its `EmitSamplerDeclarations`
+/ `EmitPixelMainDeclaration` helpers are file-internal there.
+
+Modes exist purely so the pass can be tested before it is trusted, which is the
+step the twelve-round attempt skipped: `identity` (must reproduce the frame),
+`delta` (the measured camera delta, scaled), `synthetic` (a fixed sideways
+translation, so depth is testable in a scene whose real camera is static).
+Selected by `MODERNGEKKO_REPROJECT` / `MODERNGEKKO_REPROJECT_SCALE`; unset is Off.
+
+**The bug that cost the most, and would have been invisible without the solid-colour
+test:** the warp was originally invoked between `g_gfx->BindBackbuffer()` and
+`RenderXFBToScreen()`. Its `SetAndDiscardFramebuffer` stole the binding, so the
+subsequent blit drew into the reprojection target instead of the screen and the
+window showed the cleared backbuffer - a pure black screen with no error anywhere.
+Making the shader emit solid red distinguished "pass not reaching the screen" from
+"sampling wrong" in one build. The fix is ordering: run the warp BEFORE the
+backbuffer is bound and hand the result to the blit.
+
+Results:
+- `identity` renders a clean, undistorted frame. That exercises the full
+  inverse-projection -> projection round trip, so a wrong matrix layout or a bad
+  `Matrix44::Inverted()` would show as visible distortion. It does not.
+- `synthetic` at a large scale produces depth-dependent displacement: near
+  geometry moves differently from the background, with a visible seam where
+  warped pixels leave the screen and hit the unwarped fallback. Parallax is the
+  only thing that can produce that, so depth is genuinely driving the warp.
+- Default (no env) costs 62.6% of a core against a 61.8% baseline, and renders
+  identically to before.
+
+Also worth recording: `ResolveEFBDepthTexture(region, force_r32f=true)` is the
+right accessor rather than `GetEFBDepthTexture()`, because with MSAA on the raw
+EFB depth texture is multisampled and binding it to a plain `sampler2DArray` is
+invalid.
+
+Watch out: the in-game menu's MSAA/SSAA settings drifted to 1x/off during this
+work and had to be restored to 8x/on. Check `userdata/Config/GFX.ini` after any
+session that touches graphics settings.
+
+Next is step 3, pacing: present a tween between real frames. Everything before
+that is verified; the warp itself is no longer a source of risk.
+
+## Step 3 (2026-09-04): pacing - double-rate presentation, working
+
+Presents a second, extrapolated frame after each real one. On the 119.86Hz display
+a 60Hz game then fills both refreshes instead of the same image being scanned out
+twice. Enabled by `MODERNGEKKO_INTERPOLATE=1` (with `MODERNGEKKO_REPROJECT=delta`),
+or by `out/linux/PacManWorld2-Linux64/play-interpolated.sh`. Off by default.
+
+**Extrapolation, not interpolation.** A tween BETWEEN two real frames cannot be
+shown until the later one exists, which costs a full frame of input latency.
+Warping forward from the frame just rendered costs none. The trade is that the
+extra frame is wrong by however much the camera's motion changed within one
+frame, which at 0.02 units of frame-to-frame change (measured in step 1) is small.
+
+**The pacing constraint, and why the feature implies dual core.** The budget is
+16.7ms per guest frame; emulation needs ~10.3ms of it. Under FIFO vsync a second
+present waits a full 8.3ms refresh, and in single-core mode the same thread runs
+the guest, so that wait comes straight out of emulation. Measured: guest fell to
+17.61ms / 56.8Hz with 43.9% of frames over 18ms, and the presented rate got WORSE
+rather than doubling. With a separate video thread the guest holds 16.68ms /
+59.9Hz at 0.81% over 18ms. `dolphin_runtime.cpp` therefore sets MAIN_CPU_THREAD
+when the feature is on, for that run only, rather than performing badly in silence.
+
+Note this makes dual core a cost of the feature: on the baseline it measured
+worse for stutter (1.4% of frames over 18ms against 0.00% single-core).
+
+**Cadence must be constant.** When the camera estimate is untrustworthy - a cut,
+or too few draws - Warp returns null. Skipping the second present drops the
+presented cadence from 120 to 60 and back, which reads as judder; presenting the
+real frame again instead keeps it at 120, and a duplicate is exactly what the
+display would have scanned out anyway. Before this fix the counter alternated
+between 118 and 59.9; after it, median 119.9.
+
+**Measured, via a present counter** (`MODERNGEKKO_LOG_PRESENTS`) - render_times.txt
+counts guest frames and cannot answer this:
+- interpolated: median 119.9 presents/sec, max 122.4, >=110/sec for 70% of seconds
+  (the remainder are loading screens and 30Hz cutscenes, where the game itself is
+  not producing 60 unique frames)
+- default `play.sh`: unchanged, single core, no interpolation messages
+
+Open: the extrapolated frame carries objects that move relative to the world by
+the camera warp alone, and disocclusions fall back to the unwarped pixel. Whether
+that reads as smoother in motion is a judgement call for the player, not
+something these measurements can settle.
+
+## Menu integration and two bugs the player found (2026-09-04)
+
+Frame interpolation is now a checkbox in the Escape menu, backed by
+`GFX_FRAME_INTERPOLATION` (`GFX.ini [Settings] FrameInterpolation`). Like the
+widescreen toggle it applies on Restart, because it decides whether dual core is
+enabled at boot; the menu says so rather than pretending to toggle live.
+`MODERNGEKKO_INTERPOLATE` still overrides it for testing.
+
+**Bug 1: the menu flickered.** The second present deliberately skipped ImGui, so
+the menu and FPS counter appeared on only every other present - a hard 60Hz
+flicker over an otherwise 120Hz image. `OnScreenUI::DrawImGui()` only reads
+`ImGui::GetDrawData()` and re-uploads it, consuming nothing, so it can safely
+render the same frame's draw data twice. Verified: menu present in 12/12 rapid
+captures, where before it was on half of them.
+
+**Bug 2: "the textures a bit buggy" - a real 10% depth misalignment.** The warp
+samples colour from the XFB copy and depth from the EFB at the same normalized
+UV. Measured, those do not cover the same region: the XFB texture here is
+640x480 while the EFB is 1920x1584, i.e. 3x the GameCube's native 640x**528**.
+So every depth lookup was about 10% too far down the buffer, putting silhouettes
+in the wrong place - visible as artifacts around edges. Fixed with a
+`depth_uv_scale` uniform of `xfb_size / (EFB_WIDTH, EFB_HEIGHT)`. Note the fix
+assumes the XFB copy is top-left aligned in the EFB, which holds for this game;
+a game copying from an offset would need that offset passed too.
+
+The `xfb_rect` itself covered the whole XFB texture (0,0 640x480), so the
+sub-rectangle case did not bite - but it exists and would need the same
+treatment. `MODERNGEKKO_LOG_XFBRECT=1` prints the geometry once.
+
+## The actual bug (2026-09-04): the warp ran backwards
+
+Everything before this was chasing the wrong thing. Two errors compounded:
+
+**1. A bogus test.** The "prediction strength zero" run set
+`MODERNGEKKO_REPROJECT_SCALE=0`, but in double-rate mode the tween scale was a
+hardcoded `0.5f` in `Present.cpp`; the env var only reached the single-present
+test path. The user was still looking at a full 0.5 warp, so "artifact persists
+at zero => the warp is innocent" proved nothing, and three conclusions built on
+it (depth, void, presentation) were wrong. The tween scale is now
+`Reprojection::TweenScale()`, which honours the env var, so a scale of 0 is a
+genuine duplicate.
+
+**2. The direction was inverted.** The shader is a BACKWARD-mapping resampler:
+for each output pixel it computes a source coordinate and samples there. That
+question - "where was this content in the source?" - is answered by the INVERSE
+of the camera motion. The code fed it the FORWARD motion (where the point goes
+next), so every tween was extrapolated to N-0.5 instead of N+0.5. At 120Hz the
+sequence became N, N-0.5, N+1, N+0.5, ... - a 60Hz oscillation of the whole
+image, present ONLY when the camera moves, which is exactly the report. Neither
+the identity test nor the synthetic-shift test can catch a sign error unless
+the sign is checked; they were not. Fixed by inverting the half-step as a rigid
+transform (R^T, -R^T t) before uploading it.
+
+**Verified with a known-answer test.** Synthetic mode moves objects +x in view
+space, so the displayed image must shift RIGHT and a backward warp must sample
+LEFT; at the left edge that runs off the texture and is clamped, repeating the
+edge column. Counting columns EXACTLY identical to the edge column: left 200
+(capped), right 1, across 8 frames. The left edge is the stretched one - the
+direction is correct. Note the loose detector (adjacent-column diff < 1.5)
+scored both edges ~1.0 because dark cave textures barely vary column to
+column; a clamped edge is exactly identical, so the strict test is the one that
+means anything.
+
+Conclusions withdrawn: the "depth reads flat 0" finding and the "void" finding
+were real observations but were never the cause of the reported artifact.
+
+## Step 3, done right (2026-09-04): single-core 120Hz without dual core
+
+The double-present no longer needs a second CPU thread, and no longer blocks.
+
+**Why the first design starved the guest.** Under FIFO every present blocks until
+a refresh. In single-core mode the presenting thread is the guest thread, so the
+second present's 8.3ms wait came straight out of the 16.7ms emulation budget:
+measured 56.8Hz with 44% of frames late. Forcing dual core hid that but brought
+its own desync artifacts (hard-edged missing geometry during fast camera moves
+- visible in the user's F9 captures, which show the REAL frame the warp never
+touches).
+
+**The fix, in two parts.**
+1. `VKSwapChain.cpp`: when interpolation is on, prefer `VK_PRESENT_MODE_MAILBOX_KHR`
+   over FIFO. Still tear-free, but the present returns immediately. Verified
+   available on this RADV/X11 setup via vulkaninfo.
+2. `Present.cpp`: the tween is not presented inline. After the real present,
+   `CoreTiming::ScheduleEvent(ticks_per_second / 120, m_tween_event)` queues it half a
+   guest frame later on the same thread; the callback blits the tween (or the
+   real frame again when the camera estimate is untrustworthy, to keep cadence)
+   and presents. `RemoveEvent` first, since only one instance may be queued.
+   `dolphin_runtime.cpp` no longer forces `MAIN_CPU_THREAD`.
+
+Measured on the final build, single core (`CPU-GPU thread`), interpolation on:
+guest median 16.68ms, worst 16.83ms, 0.00% over 18ms - identical to the original
+60Hz baseline. Stage counters (`MODERNGEKKO_LOG_PRESENTS`) show
+scheduled == fired == presented with zero bails.
+
+**A second bug the scheduling exposed: ImGui frame lifecycle.** `Present()` ended
+with `BeginImGuiFrame` (`ImGui::NewFrame`), and `imgui.cpp:5377` sets
+`DrawDataP.Valid = false` there. The scheduled tween fired AFTER it and redrew
+invalidated draw data - the FPS badge vanished from every frame, and invalid
+ImGui buffers drawn over the image are a plausible contributor to "textures
+bugging out". Fix: `m_tween_pending` defers `BeginImGuiFrame` into the tween
+present; `Present()` runs it itself if a pending tween was cancelled, so ImGui
+can never stall. Badge present in 6/6 grabs afterwards.
+
+**Reading the present counter correctly.** presents/sec = real + tween, so it
+doubles the CONTENT rate: 30Hz movie sections read 60, 60Hz gameplay reads ~120
+(122.4 observed). Sampling during the intro movie and concluding "not doubling"
+was a measurement error made twice in this session.
+
+## The tween was softer than the real frame (2026-09-04)
+
+"Smooth but the textures are buggy" - timing and direction right, content wrong.
+The real frame is the 640x480 XFB upscaled once. The tween was that XFB resampled
+bilinearly AT 640x480 with a fractional shift, then upscaled: two passes. A
+half-step tween shifts ~0.45px at that scale (camera ~1 unit/frame at depth ~350,
+~0.9px/unit), and a half-texel bilinear shift is a 2-tap box filter. Measured on
+IDENTICAL content offline: the two-pass tween keeps only 77% of the real frame's
+Laplacian variance. Alternating sharp/soft at 120Hz reads as textures crawling.
+(The in-engine cross-run sharpness comparison was inconclusive because scene
+content dominates the metric far more than a filter pass - scene drift again.)
+
+Fix: the warp renders at the on-screen blit size and samples the XFB through the
+same crop the real frame uses (`src_rect` uniform), then is blitted 1:1. One
+filtering pass, identical to the real path, by construction. `Warp()` now takes
+`out_width/out_height/source_rc`; `Present()` computes the blit rects before
+warping (they depend only on presenter state).
+
+## Final pass (2026-09-04): the three residual symptoms, each with its mechanism
+
+**Wobble on near objects -> rotation-only warp.** Translation reprojection needs
+per-pixel depth; done at one representative depth, every object nearer or farther
+than it lands wrong on the tween and snaps back on the real frame. Rotation
+reprojects every pixel exactly at any depth (a homography), and this camera is
+rotation-dominated (0.1-0.6 deg/frame vs ~0.16 deg angular effect from
+translation at depth ~350). Translation is now off by default;
+`MODERNGEKKO_INTERP_TRANSLATE=1` restores the approximation. Cost: pure forward
+running gets 60Hz cadence for the translational component (no artifact, less gain).
+
+**Edge smear on fast pans -> feathering.** Clamped sampling repeats the edge texel;
+skipping the warp leaves a seam. Displacement now fades to zero across the outer
+24 px of the output (`params.yz` carries the output size), so nothing is sampled
+off-frame and there is no seam.
+
+**Residual shimmer -> tween queued at 0.4 frame, representing 0.5.** Under MAILBOX
+the refresh shows whatever was queued last before the vblank; queuing exactly at
+the 8.3ms boundary let jitter push tweens into the next window where the next
+real frame replaced them - a silently dropped tween is a 60Hz beat. Queued at
+ticks/150 (6.7ms) instead: measured offsets median 6.1-6.6ms, max 7.87ms, 23 of
+11324 past 8ms. Also verified the warp's sampler (`GetLinearSamplerState`) equals
+the real blit's, so there is no per-frame filter mismatch.
+
+**Ruled out, with numbers:** a MAILBOX acquire stall on the guest thread.
+`PresentBackbuffer` blocked at most 1.65ms (real) / 4.86ms (tween) over 228 s, and
+the 11 seconds containing a guest frame >18ms had presents blocking <=0.9ms. The
+guest-pacing spread seen across runs of the SAME binary (2.57% vs 0.68% >18ms)
+is the attract demo's scene variance (baseline measured 0.00-1.50%), not the
+present path.
+
+Final measured state, single core: 164/228 s at >=110 presents (peak 123.9),
+guest median 16.68ms, every scheduled tween presented, FPS badge on every frame.
+
+## Final outcome, second time (2026-09-04): reprojection removed entirely
+
+The player's remaining complaint was that "the frames don't blend together when
+moving the camera". Rotation-only warping put the tween exactly on top of the
+real frame under translation, so the two frames were visibly the same image at
+60Hz cadence; restoring translation needs per-pixel depth. Two things were
+established while chasing that, and both are recorded because they are the
+reason the approach stops here:
+
+1. **The EFB depth is gone by the time the frame is presented.** The warp shader
+   sampled the resolved EFB depth at `Present()` and read 1.0 at every pixel.
+   `PeekEFBDepth` at the same point returned plausible values (0.986 at the
+   centre), but it serves from the peek cache that `EndOfFrame()` refreshes -
+   a pre-clear snapshot, not the live buffer. Any per-pixel-depth warp therefore
+   has to capture depth at EFB-copy time, before the game's clear, which means
+   a depth copy per XFB copy and a second texture carried to Present.
+2. **The projection uniform was the last matrix set, not the scene's.** It read
+   as all zeros on the first frames and, in general, `VertexShaderManager::
+   constants.projection` after a frame is whatever the HUD set last. The
+   perspective projection must be latched at the last perspective draw.
+
+Both are fixable, but each is another round on a feature whose every previous
+round produced a new class of artifact for the player. The user called it:
+"Give up on the interpolation", then "Remove the interpolation code
+completely". Removed: `CameraTracker`, `Reprojection`, the warp shader, the
+MAILBOX present-mode switch, the CoreTiming-scheduled tween present, the
+`FrameInterpolation` setting and its menu checkbox, the camera-tracker hook in
+`VertexManagerBase::Flush`. The tree is back to the v1.0.3 design plus the one
+thing this effort found that helps everyone: the shader cache fix below.
+
+Two process lessons, again: (a) two full "the shader change has no effect"
+rounds were a stale process - `cp` had failed with "Text file busy" - so the
+md5 of the running binary is the first thing to check, not the last; (b) a
+readback API that looks live may be a cache.
+
+## The one keeper: the shader cache never persisted (2026-09-04)
+
+Found while profiling the Clyde boss fight, which stuttered on smoke and fire.
+`UICommon::CreateDirectories()` is only called from DolphinQt's `main()`, which
+this port does not build, so `Cache/` never existed. `ShaderGenCommon`'s
+`File::CreateDir` for `Cache/Shaders/` is non-recursive and failed on the
+missing parent on every launch. Every session therefore started with "Loaded 0
+cached shaders", and each effect the player had not yet seen in THAT session
+drew through the ubershader while its specialised shader compiled. With SSAA
+on, that is per-sample shading, so the ubershader ran once per MSAA sample on
+every covered pixel - exactly the smoke-and-fire moments. One call added after
+`UICommon::Init()` in `dolphin_runtime.cpp`; the cache now fills across
+sessions. Shipped as patch 08.

@@ -423,3 +423,26 @@ ClientMessage / WM_DELETE_WINDOW).
 Verified: exiting from the menu now prints the full `[staticrecomp] shutdown:`
 line (fallback=0, smc_failed=0) with no errors, which only happens on a
 graceful teardown.
+
+## 08-shader-cache-dirs-background-input.patch  (the shader cache actually persists)
+
+Applies to `ModernGekko` itself. Two small runtime fixes:
+
+**The shader cache never persisted.** `UICommon::CreateDirectories()` is only
+called from DolphinQt's `main()`, which this port does not build, so nothing
+ever created the user directories. `Cache/` in particular did not exist, and
+`ShaderGenCommon`'s `File::CreateDir` for `Cache/Shaders/` is non-recursive, so
+it failed on the missing parent on every launch. Every session started with
+"Loaded 0 cached shaders", and each effect the player had not yet seen in THAT
+session drew through the ubershader while its specialised shader compiled. With
+SSAA on that is per-sample shading -- the ubershader runs once per MSAA sample on
+every pixel it covers -- which is why the Clyde boss fight stuttered exactly when
+smoke and fire filled the screen. One call added after `UICommon::Init()`.
+
+**`--background-input`.** Without it Dolphin stops polling input when the
+window loses focus, and the game reads that as the pad being unplugged
+("PLEASE INSERT A CONTROLLER INTO CONTROLLER SOCKET 1"). It has to be a
+command-line option rather than an INI edit: `dolphin_runtime.cpp` pushes its
+own field into `MAIN_INPUT_BACKGROUND_INPUT` with `Config::SetBase` on every
+boot, so an edited `BackgroundInput` in `Dolphin.ini` is overwritten and then
+persisted back over the user's edit on shutdown.

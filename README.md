@@ -34,6 +34,7 @@ Tooling and patches for building a **native Linux port of Pac-Man World 2**
 | `05-audio-volume-alsa-pulse` | Volume/mute silently did nothing on ALSA/PulseAudio — `SoundStream::SetVolume` is an empty virtual on those backends. Applies the gain in the mixer instead. |
 | `06-portable-moderngekko-port` | A shipped `moderngekko-port` baked an absolute build path in at compile time, making it unusable elsewhere and leaking the builder's home directory. Resolves the source root at runtime instead. |
 | `07-ingame-restart-relaunch` | The menu's Reset button hung the game: a statically recompiled module cannot be re-entered from the reset vector, so the video backend rebuilt while the guest never resumed. Replaced with a Restart that relaunches the process. |
+| `08-shader-cache-dirs-background-input` | The shader cache never persisted: `Cache/` was never created, so every session recompiled every shader and stuttered on unseen effects (the Clyde fight's smoke and fire). Also adds `--background-input` so the pad keeps working when the window is unfocused. |
 
 Patches 01, 03 and 05 are upstream bugs rather than port-specific hacks.
 Write-ups suitable for filing are in `docs/upstream-issues/`.
@@ -198,6 +199,7 @@ unendorsed by them. No copyright in the game is claimed or transferred here.
 
 ## Notes
 
-`docs/framerate-investigation.md` documents a failed attempt to run the game
-above 60 FPS, including the disassembly that shows why it is not feasible. It
-is kept because negative results save the next person the effort.
+`docs/framerate-investigation.md` documents two failed attempts to run the game
+above 60 FPS: rendering geometry at interpolated transforms, and image-space
+camera reprojection to 120Hz. Both were built, measured and removed. It is kept
+because negative results save the next person the effort.
